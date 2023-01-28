@@ -343,7 +343,7 @@ func TestCouplesConsumeManyFiles(t *testing.T) {
 	for i := 0; i < len(changes); i++ {
 		changes[i] = &object.Change{
 			From: object.ChangeEntry{},
-			To:   object.ChangeEntry{Name: string(i)},
+			To:   object.ChangeEntry{Name: string(rune(i))},
 		}
 	}
 	deps[plumbing.DependencyTreeChanges] = changes
