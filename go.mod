@@ -11,17 +11,20 @@ require (
 	github.com/go-git/go-git/v5 v5.5.2
 	github.com/gogo/protobuf v1.3.2
 	github.com/minio/highwayhash v0.0.0-20180501080913-85fc8a2dacad
-	github.com/mitchellh/go-homedir v1.0.0
+	github.com/mitchellh/go-homedir v1.1.0
 	github.com/pkg/errors v0.9.1
 	github.com/sergi/go-diff v1.1.0
 	github.com/spf13/cobra v0.0.3
 	github.com/spf13/pflag v1.0.3
 	github.com/src-d/enry/v2 v2.1.0
+	github.com/src-d/imports v0.0.0-20191128152346-bf22b73550b0
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/crypto v0.3.0
 	gopkg.in/bblfsh/client-go.v3 v3.2.0
 	gopkg.in/bblfsh/sdk.v2 v2.14.1
 	gopkg.in/cheggaaa/pb.v1 v1.0.20
+	gopkg.in/src-d/go-git.v4 v4.13.1
+	gopkg.in/src-d/hercules.v10 v10.7.2
 	gopkg.in/vmarkovtsev/BiDiSentiment.v1 v1.0.0-20180311115214-75f168ddf161
 )
 
@@ -36,7 +39,6 @@ require (
 	github.com/cloudflare/circl v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-git/gcfg v1.5.0 // indirect
 	github.com/golang/protobuf v1.2.0 // indirect
 	github.com/google/uuid v0.0.0-20180828181555-e704694aed0e // indirect
@@ -46,14 +48,14 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
-	github.com/mattn/go-colorable v0.1.2 // indirect
 	github.com/mattn/go-runewidth v0.0.0-20170510074858-97311d9f7767 // indirect
 	github.com/mcuadros/go-lookup v0.0.0-20171110082742-5650f26be767 // indirect
-	github.com/neurosnap/sentences v1.0.6 // indirect
 	github.com/opentracing/opentracing-go v1.0.2 // indirect
 	github.com/pjbgf/sha1cd v0.2.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/skeema/knownhosts v1.1.0 // indirect
+	github.com/smacker/go-tree-sitter v0.0.0-20191127230340-5368dabef05e // indirect
+	github.com/src-d/gcfg v1.4.0 // indirect
 	github.com/src-d/go-oniguruma v1.1.0 // indirect
 	github.com/tensorflow/tensorflow v0.0.0-20180308082300-f73d7c90ed05 // indirect
 	github.com/toqueteos/trie v1.0.0 // indirect
@@ -66,10 +68,12 @@ require (
 	google.golang.org/grpc v1.16.0 // indirect
 	gopkg.in/bblfsh/sdk.v1 v1.17.0 // indirect
 	gopkg.in/neurosnap/sentences.v1 v1.0.6 // indirect
+	gopkg.in/src-d/go-billy.v4 v4.3.2 // indirect
 	gopkg.in/src-d/go-errors.v1 v1.0.0 // indirect
 	gopkg.in/src-d/go-siva.v1 v1.7.0 // indirect
 	gopkg.in/toqueteos/substring.v1 v1.0.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v2 v2.2.7 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
+
+replace github.com/smacker/go-tree-sitter => github.com/dennwc/go-tree-sitter v0.0.0-20191127160809-cea124db9399
