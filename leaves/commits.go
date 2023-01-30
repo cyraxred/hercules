@@ -87,6 +87,10 @@ func (ca *CommitsAnalysis) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (*CommitsAnalysis) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 // Flag for the command line switch which enables this analysis.
 func (ca *CommitsAnalysis) Flag() string {
 	return "commits-stat"

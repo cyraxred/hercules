@@ -58,6 +58,10 @@ func (item *testPipelineItem) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (item *testPipelineItem) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 func (item *testPipelineItem) ListConfigurationOptions() []ConfigurationOption {
 	options := [...]ConfigurationOption{{
 		Name:        "TestOption",
@@ -181,6 +185,10 @@ func (item *dependingTestPipelineItem) ListConfigurationOptions() []Configuratio
 }
 
 func (item *dependingTestPipelineItem) Configure(facts map[string]interface{}) error {
+	return nil
+}
+
+func (item *dependingTestPipelineItem) ConfigureUpstream(facts map[string]interface{}) error {
 	return nil
 }
 

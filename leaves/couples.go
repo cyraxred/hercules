@@ -109,6 +109,10 @@ func (couples *CouplesAnalysis) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (*CouplesAnalysis) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 // Flag for the command line switch which enables this analysis.
 func (couples *CouplesAnalysis) Flag() string {
 	return "couples"

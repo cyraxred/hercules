@@ -110,6 +110,10 @@ func (tdb *TyposDatasetBuilder) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (*TyposDatasetBuilder) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 // Flag for the command line switch which enables this analysis.
 func (tdb *TyposDatasetBuilder) Flag() string {
 	return "typos-dataset"

@@ -95,6 +95,10 @@ func (ipd *ImportsPerDeveloper) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (*ImportsPerDeveloper) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 // Initialize resets the temporary caches and prepares this PipelineItem for a series of Consume()
 // calls. The repository which is going to be analysed is supplied as an argument.
 func (ipd *ImportsPerDeveloper) Initialize(repository *git.Repository) error {

@@ -51,9 +51,6 @@ type BurndownAnalysis struct {
 
 	TrackChurn bool
 
-	// TickSize indicates the size of each time granule: day, hour, week, etc.
-	TickSize time.Duration
-
 	// HibernationThreshold sets the hibernation threshold for the underlying
 	// RBTree allocator. It is useful to trade CPU time for reduced peak memory consumption
 	// if there are many branches.
@@ -105,6 +102,9 @@ type BurndownAnalysis struct {
 	deletions map[string]bool
 	// matrix is the mutual deletions and self insertions.
 	matrix []map[int]int64
+
+	// TickSize indicates the size of each time granule: day, hour, week, etc.
+	tickSize time.Duration
 	// tick is the most recent tick index processed.
 	tick int
 	// previousTick is the tick from the previous sample period -
@@ -222,15 +222,7 @@ func (p sparseHistory) updateDelta(prevTick, curTick int, delta int) {
 		currentHistory = newSparseHistoryEntry()
 		p[curTick] = currentHistory
 	}
-	d := int64(delta)
-	currentHistory.deltas[prevTick] += d
-
-	//if d > 0 {
-	//	currentHistory.totalInsert += d
-	//} else {
-	//	currentHistory.totalDelete += d
-	//}
-	//p[curTick] = currentHistory
+	currentHistory.deltas[prevTick] += int64(delta)
 }
 
 // DenseHistory is the matrix [number of samples][number of bands] -> number of lines.
@@ -315,6 +307,10 @@ func (analyser *BurndownAnalysis) Configure(facts map[string]interface{}) error 
 	} else {
 		analyser.l = core.NewLogger()
 	}
+
+	if val, exists := facts[items.FactTickSize].(time.Duration); exists {
+		analyser.tickSize = val
+	}
 	if val, exists := facts[ConfigBurndownGranularity].(int); exists {
 		analyser.Granularity = val
 	}
@@ -347,12 +343,13 @@ func (analyser *BurndownAnalysis) Configure(facts map[string]interface{}) error 
 	if val, exists := facts[ConfigBurndownDebug].(bool); exists {
 		analyser.Debug = val
 	}
-	if val, exists := facts[items.FactTickSize].(time.Duration); exists {
-		analyser.TickSize = val
-	}
 
 	analyser.TrackChurn = analyser.PeopleNumber > 0
 
+	return nil
+}
+
+func (analyser *BurndownAnalysis) ConfigureUpstream(_ map[string]interface{}) error {
 	return nil
 }
 
@@ -386,11 +383,6 @@ func (analyser *BurndownAnalysis) Initialize(repository *git.Repository) error {
 			analyser.Granularity)
 		analyser.Sampling = analyser.Granularity
 	}
-	if analyser.TickSize == 0 {
-		def := items.DefaultTicksSinceStartTickSize * time.Hour
-		analyser.l.Warnf("tick size was not set, adjusted to %v\n", def)
-		analyser.TickSize = items.DefaultTicksSinceStartTickSize * time.Hour
-	}
 	analyser.repository = repository
 	analyser.fileNames = map[burndown.FileId]string{0: ""}
 	analyser.globalHistory = sparseHistory{}
@@ -407,6 +399,7 @@ func (analyser *BurndownAnalysis) Initialize(repository *git.Repository) error {
 	analyser.renames = map[string]string{}
 	analyser.deletions = map[string]bool{}
 	analyser.matrix = make([]map[int]int64, analyser.PeopleNumber)
+
 	analyser.tick = 0
 	analyser.previousTick = 0
 
@@ -634,7 +627,7 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 		FileOwnership:      fileOwnership,
 		PeopleHistories:    peopleHistories,
 		PeopleMatrix:       peopleMatrix,
-		tickSize:           analyser.TickSize,
+		tickSize:           analyser.tickSize,
 		reversedPeopleDict: analyser.reversedPeopleDict,
 		sampling:           analyser.Sampling,
 		granularity:        analyser.Granularity,
@@ -716,13 +709,8 @@ func (analyser *BurndownAnalysis) MergeResults(
 		return fmt.Errorf("mismatching tick sizes (r1: %d, r2: %d) received",
 			bar1.tickSize, bar2.tickSize)
 	}
-	// for backwards-compatibility, if no tick size is present set to default
-	analyser.TickSize = bar1.tickSize
-	if analyser.TickSize == 0 {
-		analyser.TickSize = items.DefaultTicksSinceStartTickSize * time.Hour
-	}
 	merged := BurndownResult{
-		tickSize: analyser.TickSize,
+		tickSize: bar1.tickSize,
 	}
 	if bar1.sampling < bar2.sampling {
 		merged.sampling = bar1.sampling

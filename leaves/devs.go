@@ -114,6 +114,10 @@ func (devs *DevsAnalysis) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (*DevsAnalysis) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 // Flag for the command line switch which enables this analysis.
 func (devs *DevsAnalysis) Flag() string {
 	return "devs"

@@ -98,9 +98,10 @@ type PipelineItem interface {
 	Requires() []string
 	// ListConfigurationOptions returns the list of available options which can be consumed by Configure().
 	ListConfigurationOptions() []ConfigurationOption
-	// Configure performs the initial setup of the object by applying parameters from facts.
-	// It allows to create PipelineItems in a universal way.
+	// Configure performs the initial setup of the object by applying parameters from facts in downstream directio.
 	Configure(facts map[string]interface{}) error
+	// ConfigureUpstream performs the initial setup of the object by applying parameters from facts in upstream direction.
+	ConfigureUpstream(facts map[string]interface{}) error
 	// Initialize prepares and resets the item. Consume() requires Initialize()
 	// to be called at least once beforehand.
 	Initialize(*git.Repository) error
@@ -665,7 +666,7 @@ func (pipeline *Pipeline) resolve(dumpPath string) error {
 // Initialize prepares the pipeline for the execution (Run()). This function
 // resolves the execution DAG, Configure()-s and Initialize()-s the items in it in the
 // topological dependency order. `facts` are passed inside Configure(). They are mutable.
-func (pipeline *Pipeline) Initialize(facts map[string]interface{}) error {
+func (pipeline *Pipeline) Initialize(aFacts map[string]interface{}) error {
 	cleanReturn := false
 	defer func() {
 		if !cleanReturn {
@@ -675,8 +676,9 @@ func (pipeline *Pipeline) Initialize(facts map[string]interface{}) error {
 			}
 		}
 	}()
-	if facts == nil {
-		facts = map[string]interface{}{}
+	facts := make(map[string]interface{}, len(aFacts))
+	for k, v := range aFacts {
+		facts[k] = v
 	}
 
 	// set logger from facts, otherwise set the pipeline's logger as the logger
@@ -726,6 +728,15 @@ func (pipeline *Pipeline) Initialize(facts map[string]interface{}) error {
 			return errors.Wrapf(err, "%s failed to configure", item.Name())
 		}
 	}
+	for i := len(pipeline.items) - 1; i >= 0; i-- {
+		item := pipeline.items[i]
+		err := item.ConfigureUpstream(facts)
+		if err != nil {
+			cleanReturn = true
+			return errors.Wrapf(err, "%s failed to configure upstream", item.Name())
+		}
+	}
+
 	for _, item := range pipeline.items {
 		err := item.Initialize(pipeline.repository)
 		if err != nil {

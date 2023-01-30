@@ -66,6 +66,10 @@ func (lsc *LinesStatsCalculator) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
+func (*LinesStatsCalculator) ConfigureUpstream(facts map[string]interface{}) error {
+	return nil
+}
+
 // Initialize resets the temporary caches and prepares this PipelineItem for a series of Consume()
 // calls. The repository which is going to be analysed is supplied as an argument.
 func (lsc *LinesStatsCalculator) Initialize(repository *git.Repository) error {
