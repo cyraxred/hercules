@@ -207,6 +207,7 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 		Sampling:     30,
 		PeopleNumber: 2,
 		TrackFiles:   true,
+		TrackChurn:   true,
 	}
 
 	totalLines := int64(0)

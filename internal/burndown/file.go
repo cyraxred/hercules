@@ -65,8 +65,8 @@ func (file *File) updateTime(currentTime, previousTime, delta int) {
 // last node);
 //
 // updaters are the attached interval length mappings.
-func NewFile(time int, length int, allocator *rbtree.Allocator, updaters ...Updater) *File {
-	file := &File{tree: rbtree.NewRBTree(allocator), updaters: updaters}
+func NewFile(id FileId, time int, length int, allocator *rbtree.Allocator, updaters ...Updater) *File {
+	file := &File{tree: rbtree.NewRBTree(allocator), updaters: updaters, Id: id}
 	file.updateTime(time, time, length)
 	if time < 0 || time > math.MaxUint32 {
 		log.Panicf("time is out of allowed range: %d", time)

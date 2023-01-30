@@ -114,7 +114,7 @@ type BurndownAnalysis struct {
 	reversedPeopleDict []string
 	// code churns indexed by people
 	codeChurns []personChurnStats
-
+	// names of unique file ids
 	fileNames map[burndown.FileId]string
 
 	l core.Logger
@@ -1395,7 +1395,10 @@ func (analyser *BurndownAnalysis) newFile(
 	if analyser.TrackChurn {
 		updaters = append(updaters, analyser.updateChurnHistory)
 	}
-	return burndown.NewFile(tick, size, analyser.fileAllocator, updaters...), nil
+	fileId := burndown.FileId(len(analyser.fileNames))
+	analyser.fileNames[fileId] = name
+
+	return burndown.NewFile(fileId, tick, size, analyser.fileAllocator, updaters...), nil
 }
 
 func (analyser *BurndownAnalysis) handleInsertion(
@@ -1417,8 +1420,6 @@ func (analyser *BurndownAnalysis) handleInsertion(
 		hash = blob.Hash
 	}
 	file, err = analyser.newFile(hash, name, author, analyser.tick, lines)
-	file.Id = burndown.FileId(len(analyser.fileNames))
-	analyser.fileNames[file.Id] = name
 	analyser.files[name] = file
 	delete(analyser.deletions, name)
 	if analyser.tick == burndown.TreeMergeMark {
