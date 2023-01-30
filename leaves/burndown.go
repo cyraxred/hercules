@@ -49,6 +49,8 @@ type BurndownAnalysis struct {
 	// PeopleNumber is the number of developers for which to collect the burndown stats. 0 disables it.
 	PeopleNumber int
 
+	TrackChurn bool
+
 	// TickSize indicates the size of each time granule: day, hour, week, etc.
 	TickSize time.Duration
 
@@ -112,6 +114,8 @@ type BurndownAnalysis struct {
 	reversedPeopleDict []string
 	// code churns indexed by people
 	codeChurns []personChurnStats
+
+	fileNames map[burndown.FileId]string
 
 	l core.Logger
 }
@@ -183,9 +187,9 @@ const (
 )
 
 type sparseHistoryEntry struct {
-	deltas      map[int]int64
-	totalInsert int64
-	totalDelete int64
+	deltas map[int]int64
+	//totalInsert int64
+	//totalDelete int64
 }
 
 func newSparseHistoryEntry() sparseHistoryEntry {
@@ -197,44 +201,36 @@ func newSparseHistoryEntry() sparseHistoryEntry {
 type sparseHistory map[int]sparseHistoryEntry
 
 type churnFileEntry struct {
-	insertedLines  int64
-	deletedLinesBy map[int]int64
-
-	deleteHistory map[ /* by */ int]map[int]map[int]int64
+	insertedLines int64
+	deleteHistory map[ /* by person */ int]sparseHistory
 }
 
 type churnDeletedFileEntry struct {
-	name      string
+	fileId    burndown.FileId
 	deletedAt int
 	entry     churnFileEntry
 }
 
 type personChurnStats struct {
-	// row of a matrix with mutual deletions and self insertions.
-	totals struct { // churnFileEntry
-		insertedLines  int64
-		deletedLinesBy map[int]int64
-	}
-
-	files        map[string]churnFileEntry
+	files        map[burndown.FileId]churnFileEntry
 	deletedFiles []churnDeletedFileEntry
-	// map[string]churnStatEntry
 }
 
 func (p sparseHistory) updateDelta(prevTick, curTick int, delta int) {
 	currentHistory, ok := p[curTick]
 	if !ok {
 		currentHistory = newSparseHistoryEntry()
+		p[curTick] = currentHistory
 	}
 	d := int64(delta)
 	currentHistory.deltas[prevTick] += d
 
-	if d > 0 {
-		currentHistory.totalInsert += d
-	} else {
-		currentHistory.totalDelete += d
-	}
-	p[curTick] = currentHistory
+	//if d > 0 {
+	//	currentHistory.totalInsert += d
+	//} else {
+	//	currentHistory.totalDelete += d
+	//}
+	//p[curTick] = currentHistory
 }
 
 // DenseHistory is the matrix [number of samples][number of bands] -> number of lines.
@@ -354,6 +350,9 @@ func (analyser *BurndownAnalysis) Configure(facts map[string]interface{}) error 
 	if val, exists := facts[items.FactTickSize].(time.Duration); exists {
 		analyser.TickSize = val
 	}
+
+	analyser.TrackChurn = analyser.PeopleNumber > 0
+
 	return nil
 }
 
@@ -393,6 +392,7 @@ func (analyser *BurndownAnalysis) Initialize(repository *git.Repository) error {
 		analyser.TickSize = items.DefaultTicksSinceStartTickSize * time.Hour
 	}
 	analyser.repository = repository
+	analyser.fileNames = map[burndown.FileId]string{0: ""}
 	analyser.globalHistory = sparseHistory{}
 	analyser.fileHistories = map[string]sparseHistory{}
 	if analyser.PeopleNumber < 0 {
@@ -409,6 +409,11 @@ func (analyser *BurndownAnalysis) Initialize(repository *git.Repository) error {
 	analyser.matrix = make([]map[int]int64, analyser.PeopleNumber)
 	analyser.tick = 0
 	analyser.previousTick = 0
+
+	if analyser.TrackChurn {
+		analyser.codeChurns = make([]personChurnStats, analyser.PeopleNumber)
+	}
+
 	return nil
 }
 
@@ -1266,7 +1271,7 @@ func (analyser *BurndownAnalysis) onNewTick() {
 	analyser.mergedAuthor = identity.AuthorMissing
 }
 
-func (analyser *BurndownAnalysis) updateGlobal(currentTime, previousTime, delta int) {
+func (analyser *BurndownAnalysis) updateGlobal(_ *burndown.File, currentTime, previousTime, delta int) {
 	_, curTick := analyser.unpackPersonWithTick(currentTime)
 	_, prevTick := analyser.unpackPersonWithTick(previousTime)
 
@@ -1283,7 +1288,7 @@ func (analyser *BurndownAnalysis) updateFile(
 	history.updateDelta(prevTick, curTick, delta)
 }
 
-func (analyser *BurndownAnalysis) updateAuthor(currentTime, previousTime, delta int) {
+func (analyser *BurndownAnalysis) updateAuthor(_ *burndown.File, currentTime, previousTime, delta int) {
 	prevAuthor, prevTick := analyser.unpackPersonWithTick(previousTime)
 	if prevAuthor == identity.AuthorMissing {
 		return
@@ -1302,7 +1307,7 @@ func (analyser *BurndownAnalysis) updateAuthor(currentTime, previousTime, delta 
 	history.updateDelta(prevTick, curTick, delta)
 }
 
-func (analyser *BurndownAnalysis) updateChurnMatrix(currentTime, previousTime, delta int) {
+func (analyser *BurndownAnalysis) updateChurnMatrix(_ *burndown.File, currentTime, previousTime, delta int) {
 	newAuthor, _ := analyser.unpackPersonWithTick(currentTime)
 	prevAuthor, _ := analyser.unpackPersonWithTick(previousTime)
 
@@ -1324,8 +1329,50 @@ func (analyser *BurndownAnalysis) updateChurnMatrix(currentTime, previousTime, d
 	row[newAuthor] += int64(delta)
 }
 
+func (analyser *BurndownAnalysis) updateChurnHistory(file *burndown.File, currentTime, previousTime, delta int) {
+	prevAuthor, prevTick := analyser.unpackPersonWithTick(previousTime)
+	newAuthor, curTick := analyser.unpackPersonWithTick(currentTime)
+	if delta > 0 {
+		if newAuthor != prevAuthor {
+			analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
+			return
+		}
+	}
+	if prevAuthor == identity.AuthorMissing {
+		return
+	}
+
+	churn := &analyser.codeChurns[prevAuthor]
+	if churn.files == nil {
+		churn.files = map[burndown.FileId]churnFileEntry{}
+	}
+	fileEntry := churn.files[file.Id]
+	d := int64(delta)
+	if delta > 0 {
+		fileEntry.insertedLines += d
+		churn.files[file.Id] = fileEntry
+		return
+	}
+
+	history := fileEntry.deleteHistory[newAuthor]
+	if history == nil {
+		if fileEntry.deleteHistory == nil {
+			fileEntry.deleteHistory = map[int]sparseHistory{}
+			churn.files[file.Id] = fileEntry
+		}
+		history = map[int]sparseHistoryEntry{}
+		fileEntry.deleteHistory[newAuthor] = history
+	}
+	m := history[curTick]
+	if m.deltas == nil {
+		m = newSparseHistoryEntry()
+		history[curTick] = m
+	}
+	m.deltas[prevTick] += d
+}
+
 func (analyser *BurndownAnalysis) newFile(
-	hash plumbing.Hash, name string, author int, tick int, size int) (*burndown.File, error) {
+	_ plumbing.Hash, name string, author int, tick int, size int) (*burndown.File, error) {
 
 	updaters := make([]burndown.Updater, 1)
 	updaters[0] = analyser.updateGlobal
@@ -1336,7 +1383,7 @@ func (analyser *BurndownAnalysis) newFile(
 			history = sparseHistory{}
 		}
 		analyser.fileHistories[name] = history
-		updaters = append(updaters, func(currentTime, previousTime, delta int) {
+		updaters = append(updaters, func(_ *burndown.File, currentTime, previousTime, delta int) {
 			analyser.updateFile(history, currentTime, previousTime, delta)
 		})
 	}
@@ -1344,6 +1391,9 @@ func (analyser *BurndownAnalysis) newFile(
 		updaters = append(updaters, analyser.updateAuthor)
 		updaters = append(updaters, analyser.updateChurnMatrix)
 		tick = analyser.packPersonWithTick(author, tick)
+	}
+	if analyser.TrackChurn {
+		updaters = append(updaters, analyser.updateChurnHistory)
 	}
 	return burndown.NewFile(tick, size, analyser.fileAllocator, updaters...), nil
 }
@@ -1357,15 +1407,18 @@ func (analyser *BurndownAnalysis) handleInsertion(
 		return nil
 	}
 	name := change.To.Name
-	file, exists := analyser.files[name]
-	if exists {
+	file := analyser.files[name]
+	if file != nil {
 		return fmt.Errorf("file %s already exists", name)
 	}
+
 	var hash plumbing.Hash
 	if analyser.tick != burndown.TreeMergeMark {
 		hash = blob.Hash
 	}
 	file, err = analyser.newFile(hash, name, author, analyser.tick, lines)
+	file.Id = burndown.FileId(len(analyser.fileNames))
+	analyser.fileNames[file.Id] = name
 	analyser.files[name] = file
 	delete(analyser.deletions, name)
 	if analyser.tick == burndown.TreeMergeMark {
@@ -1411,7 +1464,7 @@ func (analyser *BurndownAnalysis) handleDeletion(
 	for len(stack) > 0 {
 		head := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
-		analyser.renames[head] = ""
+		analyser.renames[head] = "" // TODO delete instead of zero value
 		for key, val := range analyser.renames {
 			if val == head {
 				stack = append(stack, key)
@@ -1558,6 +1611,7 @@ func (analyser *BurndownAnalysis) handleRename(from, to string) error {
 		return fmt.Errorf("file %s > %s does not exist (files)", from, to)
 	}
 	delete(analyser.files, from)
+	analyser.fileNames[file.Id] = to
 	analyser.files[to] = file
 	delete(analyser.deletions, to)
 	if analyser.tick == burndown.TreeMergeMark {

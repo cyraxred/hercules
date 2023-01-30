@@ -10,7 +10,9 @@ import (
 )
 
 // Updater is the function which is called back on File.Update().
-type Updater = func(currentTime, previousTime, delta int)
+type Updater = func(f *File, currentTime, previousTime, delta int)
+
+type FileId int32
 
 // File encapsulates a balanced binary tree to store line intervals and
 // a cumulative mapping of values to the corresponding length counters. Users
@@ -26,6 +28,7 @@ type Updater = func(currentTime, previousTime, delta int)
 type File struct {
 	tree     *rbtree.RBTree
 	updaters []Updater
+	Id       FileId
 }
 
 // TreeEnd denotes the value of the last leaf in the tree.
@@ -50,7 +53,7 @@ func (file *File) updateTime(currentTime, previousTime, delta int) {
 		return
 	}
 	for _, update := range file.updaters {
-		update(currentTime, previousTime, delta)
+		update(file, currentTime, previousTime, delta)
 	}
 }
 
@@ -108,12 +111,12 @@ func NewFileFromTree(keys []int, vals []int, allocator *rbtree.Allocator, update
 // CloneShallow copies the file. It performs a shallow copy of the tree: the allocator
 // must be Clone()-d beforehand.
 func (file *File) CloneShallow(allocator *rbtree.Allocator) *File {
-	return &File{tree: file.tree.CloneShallow(allocator), updaters: file.updaters}
+	return &File{tree: file.tree.CloneShallow(allocator), updaters: file.updaters, Id: file.Id}
 }
 
 // CloneDeep copies the file. It performs a deep copy of the tree.
 func (file *File) CloneDeep(allocator *rbtree.Allocator) *File {
-	return &File{tree: file.tree.CloneDeep(allocator), updaters: file.updaters}
+	return &File{tree: file.tree.CloneDeep(allocator), updaters: file.updaters, Id: file.Id}
 }
 
 // Delete deallocates the file.
