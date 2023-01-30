@@ -140,13 +140,6 @@ func TestBurndownInitialize(t *testing.T) {
 }
 
 func TestBurndownConsumeFinalize(t *testing.T) {
-	bd := BurndownAnalysis{
-		Granularity:  30,
-		Sampling:     30,
-		PeopleNumber: 2,
-		TrackFiles:   true,
-	}
-	assert.Nil(t, bd.Initialize(test.Repository))
 	deps := map[string]interface{}{}
 
 	// stage 1
@@ -208,40 +201,78 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
 		"cce947b98a050c6d356bc6ba95030254914027b1"))
 	deps[core.DependencyIsMerge] = false
-	result, err = bd.Consume(deps)
-	assert.Nil(t, result)
-	assert.Nil(t, err)
-	assert.Equal(t, bd.previousTick, 0)
-	assert.Len(t, bd.files, 3)
-	assert.Equal(t, bd.files["cmd/hercules/main.go"].Len(), 207)
-	assert.Equal(t, bd.files["analyser.go"].Len(), 926)
-	assert.Equal(t, bd.files[".travis.yml"].Len(), 12)
-	assert.Len(t, bd.peopleHistories, 2)
-	assert.Equal(t, bd.peopleHistories[0][0][0], int64(12+207+926))
-	assert.Len(t, bd.globalHistory, 1)
-	assert.Equal(t, bd.globalHistory[0][0], int64(12+207+926))
-	assert.Len(t, bd.fileHistories, 3)
-	bd2 := BurndownAnalysis{
-		Granularity: 30,
-		Sampling:    0,
-	}
-	assert.Nil(t, bd2.Initialize(test.Repository))
-	_, err = bd2.Consume(deps)
-	assert.Nil(t, err)
-	assert.Len(t, bd2.peopleHistories, 0)
-	assert.Len(t, bd2.fileHistories, 0)
 
-	// check merge hashes
-	burndown3 := BurndownAnalysis{}
-	assert.Nil(t, burndown3.Initialize(test.Repository))
-	deps[identity.DependencyAuthor] = 1
-	deps[core.DependencyIsMerge] = true
-	_, err = burndown3.Consume(deps)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, burndown3.mergedAuthor)
-	assert.True(t, burndown3.mergedFiles["cmd/hercules/main.go"])
-	assert.True(t, burndown3.mergedFiles["analyser.go"], plumbing.ZeroHash)
-	assert.True(t, burndown3.mergedFiles[".travis.yml"], plumbing.ZeroHash)
+	bd := BurndownAnalysis{
+		Granularity:  30,
+		Sampling:     30,
+		PeopleNumber: 2,
+		TrackFiles:   true,
+	}
+
+	totalLines := int64(0)
+
+	{
+		assert.Nil(t, bd.Initialize(test.Repository))
+
+		result, err = bd.Consume(deps)
+		assert.Nil(t, result)
+		assert.Nil(t, err)
+		assert.Equal(t, bd.previousTick, 0)
+		assert.Len(t, bd.files, 3)
+
+		expectedFiles := map[string]int64{
+			"cmd/hercules/main.go": 207,
+			"analyser.go":          926,
+			".travis.yml":          12,
+		}
+
+		for k, v := range expectedFiles {
+			assert.Equal(t, bd.files[k].Len(), int(v), k)
+			totalLines += v
+		}
+		assert.Len(t, bd.peopleHistories, 2)
+
+		assert.Equal(t, bd.peopleHistories[0][0].deltas[0], totalLines)
+		assert.Equal(t, bd.peopleHistories[0][0].totalInsert, totalLines)
+		assert.Equal(t, bd.peopleHistories[0][0].totalDelete, int64(0))
+
+		assert.Len(t, bd.globalHistory, 1)
+		assert.Equal(t, bd.globalHistory[0].deltas[0], totalLines)
+		assert.Equal(t, bd.globalHistory[0].totalInsert, totalLines)
+		assert.Equal(t, bd.globalHistory[0].totalDelete, int64(0))
+
+		assert.Len(t, bd.fileHistories, 3)
+		for k, v := range expectedFiles {
+			assert.Equal(t, bd.fileHistories[k][0].totalInsert, v)
+			assert.Equal(t, bd.fileHistories[k][0].totalDelete, int64(0))
+		}
+	}
+
+	{
+		bd2 := BurndownAnalysis{
+			Granularity: 30,
+			Sampling:    0,
+		}
+		assert.Nil(t, bd2.Initialize(test.Repository))
+		_, err = bd2.Consume(deps)
+		assert.Nil(t, err)
+		assert.Len(t, bd2.peopleHistories, 0)
+		assert.Len(t, bd2.fileHistories, 0)
+	}
+
+	{
+		// check merge hashes
+		bd3 := BurndownAnalysis{}
+		assert.Nil(t, bd3.Initialize(test.Repository))
+		deps[identity.DependencyAuthor] = 1
+		deps[core.DependencyIsMerge] = true
+		_, err = bd3.Consume(deps)
+		assert.Nil(t, err)
+		assert.Equal(t, 1, bd3.mergedAuthor)
+		assert.True(t, bd3.mergedFiles["cmd/hercules/main.go"])
+		assert.True(t, bd3.mergedFiles["analyser.go"], plumbing.ZeroHash)
+		assert.True(t, bd3.mergedFiles[".travis.yml"], plumbing.ZeroHash)
+	}
 
 	// stage 2
 	// 2b1ed978194a94edeabbca6de7ff3b5771d4d665
@@ -317,12 +348,35 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 	assert.Len(t, bd.files, 2)
 	assert.Equal(t, bd.files["cmd/hercules/main.go"].Len(), 290)
 	assert.Equal(t, bd.files["burndown.go"].Len(), 543)
+
 	assert.Len(t, bd.peopleHistories, 2)
+	assert.Equal(t, bd.peopleHistories[0][0].deltas[0], totalLines)
+	assert.Equal(t, bd.peopleHistories[0][0].totalInsert, totalLines)
+	assert.Equal(t, bd.peopleHistories[0][0].totalDelete, int64(0))
+
+	assert.Equal(t, len(bd.peopleHistories[0][30].deltas), 1)
+	assert.Equal(t, bd.peopleHistories[0][30].deltas[0], int64(-681))
+	assert.Equal(t, bd.peopleHistories[0][30].totalInsert, int64(0))
+	assert.Equal(t, bd.peopleHistories[0][30].totalDelete, int64(-681))
+
+	assert.Equal(t, len(bd.peopleHistories[1][30].deltas), 1)
+	assert.Equal(t, bd.peopleHistories[1][30].deltas[30], int64(369))
+	assert.Equal(t, bd.peopleHistories[1][30].totalInsert, int64(369))
+	assert.Equal(t, bd.peopleHistories[1][30].totalDelete, int64(0))
+
 	assert.Len(t, bd.globalHistory, 2)
-	assert.Equal(t, bd.globalHistory[0][0], int64(1145))
-	assert.Equal(t, bd.globalHistory[30][0], int64(-681))
-	assert.Equal(t, bd.globalHistory[30][30], int64(369))
+	assert.Equal(t, len(bd.globalHistory[0].deltas), 1)
+	assert.Equal(t, bd.globalHistory[0].deltas[0], totalLines)
+	assert.Equal(t, bd.globalHistory[0].totalInsert, totalLines)
+	assert.Equal(t, bd.globalHistory[0].totalDelete, int64(0))
+	assert.Equal(t, len(bd.globalHistory[30].deltas), 2)
+	assert.Equal(t, bd.globalHistory[30].deltas[0], int64(-681))
+	assert.Equal(t, bd.globalHistory[30].deltas[30], int64(369))
+	assert.Equal(t, bd.globalHistory[30].totalInsert, int64(369))
+	assert.Equal(t, bd.globalHistory[30].totalDelete, int64(-681))
+
 	assert.Len(t, bd.fileHistories, 2)
+
 	out := bd.Finalize().(BurndownResult)
 	/*
 			GlobalHistory   [][]int64
@@ -1344,7 +1398,7 @@ func TestBurndownEmptyFileHistory(t *testing.T) {
 	bd := &BurndownAnalysis{
 		Sampling:      30,
 		Granularity:   30,
-		globalHistory: sparseHistory{0: map[int]int64{0: 10}},
+		globalHistory: sparseHistory{0: sparseHistoryEntry{deltas: map[int]int64{0: 10}}},
 		fileHistories: map[string]sparseHistory{"test.go": {}},
 	}
 	res := bd.Finalize().(BurndownResult)

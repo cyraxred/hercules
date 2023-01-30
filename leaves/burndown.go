@@ -110,6 +110,8 @@ type BurndownAnalysis struct {
 	previousTick int
 	// references IdentityDetector.ReversedPeopleDict
 	reversedPeopleDict []string
+	// code churns indexed by people
+	codeChurns []personChurnStats
 
 	l core.Logger
 }
@@ -180,7 +182,60 @@ const (
 	authorSelf = identity.AuthorMissing - 1
 )
 
-type sparseHistory = map[int]map[int]int64
+type sparseHistoryEntry struct {
+	deltas      map[int]int64
+	totalInsert int64
+	totalDelete int64
+}
+
+func newSparseHistoryEntry() sparseHistoryEntry {
+	return sparseHistoryEntry{
+		deltas: map[int]int64{},
+	}
+}
+
+type sparseHistory map[int]sparseHistoryEntry
+
+type churnFileEntry struct {
+	insertedLines  int64
+	deletedLinesBy map[int]int64
+
+	deleteHistory map[ /* by */ int]map[int]map[int]int64
+}
+
+type churnDeletedFileEntry struct {
+	name      string
+	deletedAt int
+	entry     churnFileEntry
+}
+
+type personChurnStats struct {
+	// row of a matrix with mutual deletions and self insertions.
+	totals struct { // churnFileEntry
+		insertedLines  int64
+		deletedLinesBy map[int]int64
+	}
+
+	files        map[string]churnFileEntry
+	deletedFiles []churnDeletedFileEntry
+	// map[string]churnStatEntry
+}
+
+func (p sparseHistory) updateDelta(prevTick, curTick int, delta int) {
+	currentHistory, ok := p[curTick]
+	if !ok {
+		currentHistory = newSparseHistoryEntry()
+	}
+	d := int64(delta)
+	currentHistory.deltas[prevTick] += d
+
+	if d > 0 {
+		currentHistory.totalInsert += d
+	} else {
+		currentHistory.totalDelete += d
+	}
+	p[curTick] = currentHistory
+}
 
 // DenseHistory is the matrix [number of samples][number of bands] -> number of lines.
 //                                    y                  x
@@ -1215,12 +1270,7 @@ func (analyser *BurndownAnalysis) updateGlobal(currentTime, previousTime, delta 
 	_, curTick := analyser.unpackPersonWithTick(currentTime)
 	_, prevTick := analyser.unpackPersonWithTick(previousTime)
 
-	currentHistory := analyser.globalHistory[curTick]
-	if currentHistory == nil {
-		currentHistory = map[int]int64{}
-		analyser.globalHistory[curTick] = currentHistory
-	}
-	currentHistory[prevTick] += int64(delta)
+	analyser.globalHistory.updateDelta(prevTick, curTick, delta)
 }
 
 // updateFile is bound to the specific `history` in the closure.
@@ -1230,55 +1280,48 @@ func (analyser *BurndownAnalysis) updateFile(
 	_, curTick := analyser.unpackPersonWithTick(currentTime)
 	_, prevTick := analyser.unpackPersonWithTick(previousTime)
 
-	currentHistory := history[curTick]
-	if currentHistory == nil {
-		currentHistory = map[int]int64{}
-		history[curTick] = currentHistory
-	}
-	currentHistory[prevTick] += int64(delta)
+	history.updateDelta(prevTick, curTick, delta)
 }
 
 func (analyser *BurndownAnalysis) updateAuthor(currentTime, previousTime, delta int) {
-	previousAuthor, prevTick := analyser.unpackPersonWithTick(previousTime)
-	if previousAuthor == identity.AuthorMissing {
+	prevAuthor, prevTick := analyser.unpackPersonWithTick(previousTime)
+	if prevAuthor == identity.AuthorMissing {
 		return
 	}
-	_, curTick := analyser.unpackPersonWithTick(currentTime)
+	newAuthor, curTick := analyser.unpackPersonWithTick(currentTime)
+	if delta > 0 && newAuthor != prevAuthor {
+		analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
+		delta = 0
+	}
 
-	history := analyser.peopleHistories[previousAuthor]
+	history := analyser.peopleHistories[prevAuthor]
 	if history == nil {
 		history = sparseHistory{}
-		analyser.peopleHistories[previousAuthor] = history
+		analyser.peopleHistories[prevAuthor] = history
 	}
-	currentHistory := history[curTick]
-	if currentHistory == nil {
-		currentHistory = map[int]int64{}
-		history[curTick] = currentHistory
-	}
-	currentHistory[prevTick] += int64(delta)
+	history.updateDelta(prevTick, curTick, delta)
 }
 
-func (analyser *BurndownAnalysis) updateMatrix(currentTime, previousTime, delta int) {
+func (analyser *BurndownAnalysis) updateChurnMatrix(currentTime, previousTime, delta int) {
 	newAuthor, _ := analyser.unpackPersonWithTick(currentTime)
-	oldAuthor, _ := analyser.unpackPersonWithTick(previousTime)
+	prevAuthor, _ := analyser.unpackPersonWithTick(previousTime)
 
-	if oldAuthor == identity.AuthorMissing {
+	if prevAuthor == identity.AuthorMissing {
 		return
 	}
-	if newAuthor == oldAuthor && delta > 0 {
+	if delta > 0 {
+		if newAuthor != prevAuthor {
+			analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
+			delta = 0
+		}
 		newAuthor = authorSelf
 	}
-	row := analyser.matrix[oldAuthor]
+	row := analyser.matrix[prevAuthor]
 	if row == nil {
 		row = map[int]int64{}
-		analyser.matrix[oldAuthor] = row
+		analyser.matrix[prevAuthor] = row
 	}
-	cell, exists := row[newAuthor]
-	if !exists {
-		row[newAuthor] = 0
-		cell = 0
-	}
-	row[newAuthor] = cell + int64(delta)
+	row[newAuthor] += int64(delta)
 }
 
 func (analyser *BurndownAnalysis) newFile(
@@ -1299,7 +1342,7 @@ func (analyser *BurndownAnalysis) newFile(
 	}
 	if analyser.PeopleNumber > 0 {
 		updaters = append(updaters, analyser.updateAuthor)
-		updaters = append(updaters, analyser.updateMatrix)
+		updaters = append(updaters, analyser.updateChurnMatrix)
 		tick = analyser.packPersonWithTick(author, tick)
 	}
 	return burndown.NewFile(tick, size, analyser.fileAllocator, updaters...), nil
@@ -1606,7 +1649,7 @@ func (analyser *BurndownAnalysis) groupSparseHistory(
 			prevsi = si
 		}
 		sample := result[si]
-		for t, value := range history[tick] {
+		for t, value := range history[tick].deltas {
 			sample[t/analyser.Granularity] += value
 		}
 	}
