@@ -2,10 +2,56 @@ package leaves
 
 import (
 	"github.com/cyraxred/hercules/internal/burndown"
+	"github.com/cyraxred/hercules/internal/core"
+	"github.com/cyraxred/hercules/internal/plumbing/identity"
 	"io"
 	"sort"
 	"time"
 )
+
+const (
+	// ConfigBurndownGranularity is the name of the option to set BurndownAnalysis.Granularity.
+	ConfigBurndownGranularity = "Burndown.Granularity"
+	// ConfigBurndownSampling is the name of the option to set BurndownAnalysis.Sampling.
+	ConfigBurndownSampling = "Burndown.Sampling"
+	// ConfigBurndownTrackFiles enables burndown collection for files.
+	ConfigBurndownTrackFiles = "Burndown.TrackFiles"
+	// ConfigBurndownTrackPeople enables burndown collection for authors.
+	ConfigBurndownTrackPeople = "Burndown.TrackPeople"
+	// DefaultBurndownGranularity is the default number of ticks for BurndownAnalysis.Granularity
+	// and BurndownAnalysis.Sampling.
+	DefaultBurndownGranularity = 30
+	// authorSelf is the internal author index which is used in BurndownAnalysis.Finalize() to
+	// format the author overwrites matrix.
+	authorSelf = identity.AuthorMissing - 1
+)
+
+var BurndownSharedOptions = [...]core.ConfigurationOption{{
+	Name:        ConfigBurndownGranularity,
+	Description: "How many time ticks there are in a single band.",
+	Flag:        "granularity",
+	Type:        core.IntConfigurationOption,
+	Shared:      true,
+	Default:     DefaultBurndownGranularity}, {
+	Name:        ConfigBurndownSampling,
+	Description: "How frequently to record the state in time ticks.",
+	Flag:        "sampling",
+	Type:        core.IntConfigurationOption,
+	Shared:      true,
+	Default:     DefaultBurndownGranularity}, {
+	Name:        ConfigBurndownTrackFiles,
+	Description: "Record detailed statistics per each file.",
+	Flag:        "burndown-files",
+	Type:        core.BoolConfigurationOption,
+	Shared:      true,
+	Default:     false}, {
+	Name:        ConfigBurndownTrackPeople,
+	Description: "Record detailed statistics per each developer.",
+	Flag:        "burndown-people",
+	Type:        core.BoolConfigurationOption,
+	Shared:      true,
+	Default:     false},
+}
 
 // BurndownResult carries the result of running BurndownAnalysis - it is returned by
 // BurndownAnalysis.Finalize().

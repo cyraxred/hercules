@@ -180,26 +180,6 @@ func (analyser *LegacyBurndownAnalysis) Requires() []string {
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (analyser *LegacyBurndownAnalysis) ListConfigurationOptions() []core.ConfigurationOption {
 	options := [...]core.ConfigurationOption{{
-		Name:        ConfigBurndownGranularity,
-		Description: "How many time ticks there are in a single band.",
-		Flag:        "legacy-granularity",
-		Type:        core.IntConfigurationOption,
-		Default:     DefaultBurndownGranularity}, {
-		Name:        ConfigBurndownSampling,
-		Description: "How frequently to record the state in time ticks.",
-		Flag:        "legacy-sampling",
-		Type:        core.IntConfigurationOption,
-		Default:     DefaultBurndownGranularity}, {
-		Name:        ConfigBurndownTrackFiles,
-		Description: "Record detailed statistics per each file.",
-		Flag:        "legacy-burndown-files",
-		Type:        core.BoolConfigurationOption,
-		Default:     false}, {
-		Name:        ConfigBurndownTrackPeople,
-		Description: "Record detailed statistics per each developer.",
-		Flag:        "legacy-burndown-people",
-		Type:        core.BoolConfigurationOption,
-		Default:     false}, {
 		Name: ConfigLegacyBurndownHibernationThreshold,
 		Description: "The minimum size for the allocated memory in each branch to be compressed." +
 			"0 disables this optimization. Lower values trade CPU time more. Sane examples: Nx1000.",
@@ -224,7 +204,7 @@ func (analyser *LegacyBurndownAnalysis) ListConfigurationOptions() []core.Config
 		Type:        core.BoolConfigurationOption,
 		Default:     false},
 	}
-	return options[:]
+	return append(BurndownSharedOptions[:], options[:]...)
 }
 
 // Configure sets the properties previously published by ListConfigurationOptions().

@@ -18,23 +18,6 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
-const (
-	// ConfigBurndownGranularity is the name of the option to set BurndownAnalysis.Granularity.
-	ConfigBurndownGranularity = "Burndown.Granularity"
-	// ConfigBurndownSampling is the name of the option to set BurndownAnalysis.Sampling.
-	ConfigBurndownSampling = "Burndown.Sampling"
-	// ConfigBurndownTrackFiles enables burndown collection for files.
-	ConfigBurndownTrackFiles = "Burndown.TrackFiles"
-	// ConfigBurndownTrackPeople enables burndown collection for authors.
-	ConfigBurndownTrackPeople = "Burndown.TrackPeople"
-	// DefaultBurndownGranularity is the default number of ticks for BurndownAnalysis.Granularity
-	// and BurndownAnalysis.Sampling.
-	DefaultBurndownGranularity = 30
-	// authorSelf is the internal author index which is used in BurndownAnalysis.Finalize() to
-	// format the author overwrites matrix.
-	authorSelf = identity.AuthorMissing - 1
-)
-
 // BurndownAnalysis allows to gather the line burndown statistics for a Git repository.
 // It is a LeafPipelineItem.
 // Reference: https://erikbern.com/2016/12/05/the-half-life-of-code.html
@@ -106,29 +89,7 @@ func (analyser *BurndownAnalysis) Requires() []string {
 
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (analyser *BurndownAnalysis) ListConfigurationOptions() []core.ConfigurationOption {
-	options := [...]core.ConfigurationOption{{
-		Name:        ConfigBurndownGranularity,
-		Description: "How many time ticks there are in a single band.",
-		Flag:        "granularity",
-		Type:        core.IntConfigurationOption,
-		Default:     DefaultBurndownGranularity}, {
-		Name:        ConfigBurndownSampling,
-		Description: "How frequently to record the state in time ticks.",
-		Flag:        "sampling",
-		Type:        core.IntConfigurationOption,
-		Default:     DefaultBurndownGranularity}, {
-		Name:        ConfigBurndownTrackFiles,
-		Description: "Record detailed statistics per each file.",
-		Flag:        "burndown-files",
-		Type:        core.BoolConfigurationOption,
-		Default:     false}, {
-		Name:        ConfigBurndownTrackPeople,
-		Description: "Record detailed statistics per each developer.",
-		Flag:        "burndown-people",
-		Type:        core.BoolConfigurationOption,
-		Default:     false},
-	}
-	return options[:]
+	return BurndownSharedOptions[:]
 }
 
 // Configure sets the properties previously published by ListConfigurationOptions().

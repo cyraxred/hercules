@@ -73,6 +73,8 @@ type ConfigurationOption struct {
 	Type ConfigurationOptionType
 	// Default is the initial value of the configuration option.
 	Default interface{}
+	// Shared allows to share same option by multiple items. All cases must have same type, name and default.
+	Shared bool
 }
 
 // FormatDefault converts the default value of ConfigurationOption to string.
@@ -159,7 +161,7 @@ type LeafPipelineItem interface {
 type ResultMergeablePipelineItem interface {
 	LeafPipelineItem
 	// Deserialize loads the result from Protocol Buffers blob.
-	Deserialize(pbmessage []byte) (interface{}, error)
+	Deserialize(message []byte) (interface{}, error)
 	// MergeResults joins two results together. Common-s are specified as the global state.
 	MergeResults(r1, r2 interface{}, c1, c2 *CommonAnalysisResult) interface{}
 }
@@ -722,16 +724,14 @@ func (pipeline *Pipeline) Initialize(aFacts map[string]interface{}) error {
 		}
 	}
 	for _, item := range pipeline.items {
-		err := item.Configure(facts)
-		if err != nil {
+		if err := item.Configure(facts); err != nil {
 			cleanReturn = true
 			return errors.Wrapf(err, "%s failed to configure", item.Name())
 		}
 	}
 	for i := len(pipeline.items) - 1; i >= 0; i-- {
 		item := pipeline.items[i]
-		err := item.ConfigureUpstream(facts)
-		if err != nil {
+		if err := item.ConfigureUpstream(facts); err != nil {
 			cleanReturn = true
 			return errors.Wrapf(err, "%s failed to configure upstream", item.Name())
 		}
