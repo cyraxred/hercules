@@ -197,7 +197,6 @@ func TestLegacyBurndownConsumeFinalize(t *testing.T) {
 		Sampling:     30,
 		PeopleNumber: 2,
 		TrackFiles:   true,
-		TrackChurn:   true,
 	}
 
 	totalLines := int64(0)
@@ -1651,7 +1650,6 @@ func TestLegacyBurndownHandleRenameCycle(t *testing.T) {
 		files: map[string]*linehistory.File{
 			"one": {Id: 1},
 		},
-		fileNames: map[linehistory.FileId]string{0: "", 1: "one"},
 	}
 	assert.Nil(t, bd.handleRename("one", "three"))
 	assert.Equal(t, bd.renames, map[string]string{
@@ -1662,9 +1660,6 @@ func TestLegacyBurndownHandleRenameCycle(t *testing.T) {
 	assert.Equal(t, bd.fileHistories, map[string]sparseHistory{
 		"two":   {},
 		"three": {},
-	})
-	assert.Equal(t, bd.fileNames, map[linehistory.FileId]string{
-		0: "", 1: "three",
 	})
 	assert.Equal(t, bd.files, map[string]*linehistory.File{
 		"three": {Id: 1},

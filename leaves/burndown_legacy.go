@@ -50,8 +50,6 @@ type LegacyBurndownAnalysis struct {
 	// PeopleNumber is the number of developers for which to collect the burndown stats. 0 disables it.
 	PeopleNumber int
 
-	TrackChurn bool
-
 	// HibernationThreshold sets the hibernation threshold for the underlying
 	// RBTree allocator. It is useful to trade CPU time for reduced peak memory consumption
 	// if there are many branches.
@@ -113,10 +111,6 @@ type LegacyBurndownAnalysis struct {
 	previousTick int
 	// references IdentityDetector.ReversedPeopleDict
 	reversedPeopleDict []string
-	// code churns indexed by people
-	codeChurns []personChurnStats
-	// names of unique file ids
-	fileNames map[linehistory.FileId]string
 
 	l core.Logger
 }
@@ -135,22 +129,6 @@ const (
 	// ConfigLegacyBurndownDebug enables some extra debug assertions.
 	ConfigLegacyBurndownDebug = "LegacyBurndown.Debug"
 )
-
-type churnFileEntry struct {
-	insertedLines int64
-	deleteHistory map[ /* by person */ int]sparseHistory
-}
-
-type churnDeletedFileEntry struct {
-	fileId    linehistory.FileId
-	deletedAt int
-	entry     churnFileEntry
-}
-
-type personChurnStats struct {
-	files        map[linehistory.FileId]churnFileEntry
-	deletedFiles []churnDeletedFileEntry
-}
 
 // DenseHistory is the matrix [number of samples][number of bands] -> number of lines.
 //                                    y                  x
@@ -251,8 +229,6 @@ func (analyser *LegacyBurndownAnalysis) Configure(facts map[string]interface{}) 
 		analyser.Debug = val
 	}
 
-	analyser.TrackChurn = analyser.PeopleNumber > 0
-
 	return nil
 }
 
@@ -291,7 +267,6 @@ func (analyser *LegacyBurndownAnalysis) Initialize(repository *git.Repository) e
 		analyser.Sampling = analyser.Granularity
 	}
 	analyser.repository = repository
-	analyser.fileNames = map[linehistory.FileId]string{0: ""}
 	analyser.globalHistory = sparseHistory{}
 	analyser.fileHistories = map[string]sparseHistory{}
 	if analyser.PeopleNumber < 0 {
@@ -309,10 +284,6 @@ func (analyser *LegacyBurndownAnalysis) Initialize(repository *git.Repository) e
 
 	analyser.tick = 0
 	analyser.previousTick = 0
-
-	if analyser.TrackChurn {
-		analyser.codeChurns = make([]personChurnStats, analyser.PeopleNumber)
-	}
 
 	return nil
 }
@@ -1209,48 +1180,6 @@ func (analyser *LegacyBurndownAnalysis) updateChurnMatrix(_ *linehistory.File, c
 	row[newAuthor] += int64(delta)
 }
 
-func (analyser *LegacyBurndownAnalysis) updateChurnHistory(file *linehistory.File, currentTime, previousTime, delta int) {
-	prevAuthor, prevTick := analyser.unpackPersonWithTick(previousTime)
-	newAuthor, curTick := analyser.unpackPersonWithTick(currentTime)
-	if delta > 0 {
-		if newAuthor != prevAuthor {
-			analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
-			return
-		}
-	}
-	if prevAuthor == identity.AuthorMissing {
-		return
-	}
-
-	churn := &analyser.codeChurns[prevAuthor]
-	if churn.files == nil {
-		churn.files = map[linehistory.FileId]churnFileEntry{}
-	}
-	fileEntry := churn.files[file.Id]
-	d := int64(delta)
-	if delta > 0 {
-		fileEntry.insertedLines += d
-		churn.files[file.Id] = fileEntry
-		return
-	}
-
-	history := fileEntry.deleteHistory[newAuthor]
-	if history == nil {
-		if fileEntry.deleteHistory == nil {
-			fileEntry.deleteHistory = map[int]sparseHistory{}
-			churn.files[file.Id] = fileEntry
-		}
-		history = map[int]sparseHistoryEntry{}
-		fileEntry.deleteHistory[newAuthor] = history
-	}
-	m := history[curTick]
-	if m.deltas == nil {
-		m = newSparseHistoryEntry()
-		history[curTick] = m
-	}
-	m.deltas[prevTick] += d
-}
-
 func (analyser *LegacyBurndownAnalysis) newFile(
 	_ plumbing.Hash, name string, author int, tick int, size int) (*linehistory.File, error) {
 
@@ -1272,13 +1201,8 @@ func (analyser *LegacyBurndownAnalysis) newFile(
 		updaters = append(updaters, analyser.updateChurnMatrix)
 		tick = analyser.packPersonWithTick(author, tick)
 	}
-	if analyser.TrackChurn {
-		updaters = append(updaters, analyser.updateChurnHistory)
-	}
-	fileId := linehistory.FileId(len(analyser.fileNames))
-	analyser.fileNames[fileId] = name
 
-	return linehistory.NewFile(fileId, tick, size, analyser.fileAllocator, updaters...), nil
+	return linehistory.NewFile(0, tick, size, analyser.fileAllocator, updaters...), nil
 }
 
 func (analyser *LegacyBurndownAnalysis) handleInsertion(
@@ -1492,7 +1416,6 @@ func (analyser *LegacyBurndownAnalysis) handleRename(from, to string) error {
 		return fmt.Errorf("file %s > %s does not exist (files)", from, to)
 	}
 	delete(analyser.files, from)
-	analyser.fileNames[file.Id] = to
 	analyser.files[to] = file
 	delete(analyser.deletions, to)
 	if analyser.tick == linehistory.TreeMergeMark {
