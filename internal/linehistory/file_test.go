@@ -1,4 +1,4 @@
-package burndown
+package linehistory
 
 import (
 	"fmt"

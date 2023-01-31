@@ -1,4 +1,4 @@
-package burndown
+package linehistory
 
 import (
 	"errors"
@@ -21,6 +21,10 @@ import (
 	"github.com/go-git/go-git/v5/utils/merkletrie"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
+
+func NewLineHistoryAnalyser() *LineHistoryAnalyser {
+	return &LineHistoryAnalyser{}
+}
 
 // LineHistoryAnalyser allows to gather per-line history and statistics for a Git repository.
 // It is a PipelineItem.
@@ -101,6 +105,10 @@ type FileIdResolver struct {
 }
 
 func (v FileIdResolver) NameOf(id FileId) string {
+	if v.analyser == nil {
+		return ""
+	}
+
 	if n := v.analyser.fileNames[id]; n != nil {
 		return *n
 	}
@@ -108,6 +116,10 @@ func (v FileIdResolver) NameOf(id FileId) string {
 }
 
 func (v FileIdResolver) MergedWith(id FileId) (FileId, string, bool) {
+	if v.analyser == nil {
+		return 0, "", false
+	}
+
 	if n := v.analyser.fileNames[id]; n != nil {
 		if f := v.analyser.files[*n]; f != nil {
 			return f.Id, *n, true
@@ -117,6 +129,32 @@ func (v FileIdResolver) MergedWith(id FileId) (FileId, string, bool) {
 		return 0, *n, false
 	}
 	return 0, v.analyser.fileForgottenNames[id], false
+}
+
+func (v FileIdResolver) findFile(id FileId) *File {
+	if v.analyser == nil {
+		return nil
+	}
+	if n := v.analyser.fileNames[id]; n != nil {
+		if f := v.analyser.files[*n]; f != nil {
+			return f
+		}
+		v.analyser.fileForgottenNames[id] = *n
+		delete(v.analyser.fileNames, id)
+	}
+	return nil
+}
+
+func (v FileIdResolver) ScanFile(id FileId, callback func(line, tick, author int)) bool {
+	file := v.findFile(id)
+	if file == nil {
+		return false
+	}
+	file.ForEach(func(line, value int) {
+		author, tick := unpackPersonWithTick(value)
+		callback(line, tick, author)
+	})
+	return true
 }
 
 type LineHistoryChanges struct {
@@ -361,7 +399,7 @@ func (analyser *LineHistoryAnalyser) Merge(branches []core.PipelineItem) {
 			continue
 		}
 
-		mergeTick := analyser.packPersonWithTick(analyser.mergedAuthor, analyser.tick)
+		mergeTick := packPersonWithTick(analyser.mergedAuthor, analyser.tick)
 		files[0].Merge(mergeTick, files[1:]...)
 
 		for _, burn := range all {
@@ -435,7 +473,7 @@ func (analyser *LineHistoryAnalyser) Boot() error {
 // Strictly speaking, int can be 64-bit and then the author index occupies 32+18 bits.
 // This hack is needed to simplify the values storage inside File-s. We can compare
 // different values together and they are compared as ticks for the same author.
-func (analyser *LineHistoryAnalyser) packPersonWithTick(person int, tick int) int {
+func packPersonWithTick(person int, tick int) int {
 	result := tick & TreeMergeMark
 
 	if tick > TreeMergeMark {
@@ -444,8 +482,8 @@ func (analyser *LineHistoryAnalyser) packPersonWithTick(person int, tick int) in
 
 	result |= person << TreeMaxBinPower
 
-	if person >= identity.AuthorMissing {
-		log.Fatalf("person >= AuthorMissing %d \n%s", person, string(debug.Stack()))
+	if person > identity.AuthorMissing {
+		log.Fatalf("person > AuthorMissing %d \n%s", person, string(debug.Stack()))
 	}
 
 	// This effectively means max (16383 - 1) ticks (>44 years) and (262143 - 3) devs.
@@ -457,7 +495,7 @@ func (analyser *LineHistoryAnalyser) packPersonWithTick(person int, tick int) in
 	return result
 }
 
-func (analyser *LineHistoryAnalyser) unpackPersonWithTick(value int) (int, int) {
+func unpackPersonWithTick(value int) (author int, tick int) {
 	return value >> TreeMaxBinPower, value & TreeMergeMark
 }
 
@@ -469,8 +507,8 @@ func (analyser *LineHistoryAnalyser) onNewTick() {
 }
 
 func (analyser *LineHistoryAnalyser) updateChangeList(f *File, currentTime, previousTime, delta int) {
-	prevAuthor, prevTick := analyser.unpackPersonWithTick(previousTime)
-	newAuthor, curTick := analyser.unpackPersonWithTick(currentTime)
+	prevAuthor, prevTick := unpackPersonWithTick(previousTime)
+	newAuthor, curTick := unpackPersonWithTick(currentTime)
 	if delta > 0 && newAuthor != prevAuthor {
 		analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
 		return
@@ -491,7 +529,7 @@ func (analyser *LineHistoryAnalyser) newFile(
 	updaters := make([]Updater, 1)
 	updaters[0] = analyser.updateChangeList
 
-	tick = analyser.packPersonWithTick(author, tick)
+	tick = packPersonWithTick(author, tick)
 
 	analyser.forgetFileName(name)
 	delete(analyser.deletions, name)
@@ -570,7 +608,7 @@ func (analyser *LineHistoryAnalyser) handleDeletion(
 		tick = 0
 		// TODO Early removal in one branch with pre-merge changes in another is not handled correctly.
 	}
-	file.Update(analyser.packPersonWithTick(author, tick), 0, 0, lines)
+	file.Update(packPersonWithTick(author, tick), 0, 0, lines)
 	file.Delete()
 	analyser.changes = append(analyser.changes, LineHistoryChange{
 		FileId:     file.Id,
@@ -643,10 +681,10 @@ func (analyser *LineHistoryAnalyser) handleModification(
 	apply := func(edit diffmatchpatch.Diff) {
 		length := utf8.RuneCountInString(edit.Text)
 		if edit.Type == diffmatchpatch.DiffInsert {
-			file.Update(analyser.packPersonWithTick(author, analyser.tick), position, length, 0)
+			file.Update(packPersonWithTick(author, analyser.tick), position, length, 0)
 			position += length
 		} else {
-			file.Update(analyser.packPersonWithTick(author, analyser.tick), position, 0, length)
+			file.Update(packPersonWithTick(author, analyser.tick), position, 0, length)
 		}
 		if analyser.Debug {
 			file.Validate()
@@ -681,7 +719,7 @@ func (analyser *LineHistoryAnalyser) handleModification(
 					debugError()
 					return errors.New("DiffInsert may not appear after DiffInsert")
 				}
-				file.Update(analyser.packPersonWithTick(author, analyser.tick), position, length,
+				file.Update(packPersonWithTick(author, analyser.tick), position, length,
 					utf8.RuneCountInString(pending.Text))
 				if analyser.Debug {
 					file.Validate()
@@ -735,5 +773,5 @@ func (analyser *LineHistoryAnalyser) handleRename(from, to string) error {
 }
 
 func init() {
-	core.Registry.Register(&LineHistoryAnalyser{})
+	core.Registry.Register(NewLineHistoryAnalyser())
 }

@@ -1,4 +1,4 @@
-package burndown
+package linehistory
 
 import (
 	"github.com/cyraxred/hercules/internal/core"
@@ -23,7 +23,7 @@ func AddHash(t *testing.T, cache map[plumbing.Hash]*items.CachedBlob, hash strin
 }
 
 func TestLinesMeta(t *testing.T) {
-	bd := LineHistoryAnalyser{}
+	bd := NewLineHistoryAnalyser()
 	assert.Equal(t, bd.Name(), "LineHistory")
 	assert.Len(t, bd.Provides(), 1)
 	assert.Equal(t, bd.Provides()[0], DependencyLineHistory)
@@ -53,7 +53,7 @@ func TestLinesMeta(t *testing.T) {
 }
 
 func TestLinesConfigure(t *testing.T) {
-	bd := LineHistoryAnalyser{}
+	bd := NewLineHistoryAnalyser()
 	facts := map[string]interface{}{}
 	facts[ConfigLinesDebug] = true
 	facts[ConfigLinesHibernationThreshold] = 100
@@ -76,7 +76,7 @@ func TestLinesRegistration(t *testing.T) {
 }
 
 func TestLinesInitialize(t *testing.T) {
-	bd := LineHistoryAnalyser{}
+	bd := NewLineHistoryAnalyser()
 	bd.HibernationThreshold = 10
 	assert.Nil(t, bd.Initialize(test.Repository))
 	assert.Equal(t, bd.fileAllocator.HibernationThreshold, 10)
@@ -157,7 +157,7 @@ func TestLinesConsume(t *testing.T) {
 		totalLines += int64(c.Delta)
 	}
 
-	bd := LineHistoryAnalyser{}
+	bd := NewLineHistoryAnalyser()
 
 	assert.Nil(t, bd.Initialize(test.Repository))
 	result, err = bd.Consume(deps)
@@ -190,11 +190,11 @@ func TestLinesConsume(t *testing.T) {
 	}
 	assert.Equal(t, resultChanges.Changes, expectedChanges)
 
+	deps[identity.DependencyAuthor] = 1
 	{
 		// check merge hashes
-		bd3 := LineHistoryAnalyser{}
+		bd3 := NewLineHistoryAnalyser()
 		assert.Nil(t, bd3.Initialize(test.Repository))
-		deps[identity.DependencyAuthor] = 1
 		deps[core.DependencyIsMerge] = true
 		_, err = bd3.Consume(deps)
 		assert.Nil(t, err)
@@ -389,7 +389,7 @@ func TestLinesConsumeMergeAuthorMissing(t *testing.T) {
 		"cce947b98a050c6d356bc6ba95030254914027b1"))
 
 	// check that we survive merge + missing author
-	bd := LineHistoryAnalyser{}
+	bd := NewLineHistoryAnalyser()
 	assert.Nil(t, bd.Initialize(test.Repository))
 	deps[identity.DependencyAuthor] = 0
 	deps[core.DependencyIsMerge] = false
@@ -461,7 +461,7 @@ func TestLinesConsumeMergeAuthorMissing(t *testing.T) {
 }
 
 func bakeBurndownForSerialization(t *testing.T, firstAuthor, secondAuthor int) *LineHistoryAnalyser {
-	bd := &LineHistoryAnalyser{}
+	bd := NewLineHistoryAnalyser()
 	assert.Nil(t, bd.Initialize(test.Repository))
 	deps := map[string]interface{}{}
 	// stage 1
