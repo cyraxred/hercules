@@ -67,12 +67,14 @@ func (file *File) updateTime(currentTime, previousTime, delta int) {
 // updaters are the attached interval length mappings.
 func NewFile(id FileId, time int, length int, allocator *rbtree.Allocator, updaters ...Updater) *File {
 	file := &File{tree: rbtree.NewRBTree(allocator), updaters: updaters, Id: id}
-	file.updateTime(time, time, length)
 	if time < 0 || time > math.MaxUint32 {
 		log.Panicf("time is out of allowed range: %d", time)
 	}
 	if length > math.MaxUint32 {
 		log.Panicf("length is out of allowed range: %d", length)
+	}
+	if length >= 0 {
+		file.updateTime(time, time, length)
 	}
 	if length > 0 {
 		file.tree.Insert(rbtree.Item{Key: 0, Value: uint32(time)})
@@ -121,7 +123,9 @@ func (file *File) CloneDeep(allocator *rbtree.Allocator) *File {
 
 // Delete deallocates the file.
 func (file *File) Delete() {
-	file.tree.Erase()
+	if file != nil {
+		file.tree.Erase()
+	}
 }
 
 // Len returns the File's size - that is, the maximum key in the tree of line
