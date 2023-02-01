@@ -77,25 +77,38 @@ func (allocator *Allocator) Hibernate() {
 	if allocator.hibernatedStorageLen == 0 {
 		return
 	}
+
 	buffers := [6][]uint32{}
 	for i := 0; i < len(buffers); i++ {
 		buffers[i] = make([]uint32, len(allocator.storage))
 	}
 	// we deinterleave to achieve a better compression ratio
 	for i, n := range allocator.storage {
+		buffers[5][i] = uint32(n.color)
+
+		if n.color == gap {
+			if i+int(allocator.gapCount) == allocator.hibernatedStorageLen {
+				allocator.gapCount = 0
+
+				if i <= 1 {
+					allocator.hibernatedStorageLen = 0
+					allocator.nextGap = 0
+					allocator.storage = allocator.storage[0:0]
+					return
+				}
+				allocator.hibernatedStorageLen = i
+				break
+			}
+
+			allocator.gapCount--
+			continue
+		}
+
 		buffers[0][i] = n.item.Key
 		buffers[1][i] = n.item.Value
 		buffers[2][i] = n.left
 		buffers[3][i] = n.parent
 		buffers[4][i] = n.right
-		buffers[5][i] = uint32(n.color)
-		if n.color == gap {
-			allocator.gapCount--
-			if n.left == 0 {
-				doAssert(uint32(i) == allocator.nextGap)
-				doAssert(allocator.gapCount == 0)
-			}
-		}
 	}
 	doAssert(allocator.gapCount == 0)
 	allocator.nextGap = 0
@@ -104,7 +117,7 @@ func (allocator *Allocator) Hibernate() {
 	wg.Add(len(buffers))
 	for i, buffer := range buffers {
 		go func(i int, buffer []uint32) {
-			allocator.hibernatedData[i] = CompressUInt32Slice(buffer)
+			allocator.hibernatedData[i] = CompressUInt32Slice(buffer[:allocator.hibernatedStorageLen])
 			buffers[i] = nil
 			wg.Done()
 		}(i, buffer)
@@ -121,6 +134,9 @@ func (allocator *Allocator) Boot() {
 	if allocator.hibernatedData[0] == nil {
 		panic("cannot boot a serialized Allocator")
 	}
+	doAssert(allocator.gapCount == 0)
+	allocator.nextGap = 0
+
 	buffers := [6][]uint32{}
 	wg := &sync.WaitGroup{}
 	wg.Add(len(buffers))
@@ -133,30 +149,29 @@ func (allocator *Allocator) Boot() {
 		}(i)
 	}
 	wg.Wait()
+
 	allocator.storage = make([]node, allocator.hibernatedStorageLen, (allocator.hibernatedStorageLen*3)/2)
-	doAssert(allocator.gapCount == 0)
-	allocator.nextGap = 0
+	allocator.hibernatedStorageLen = 0
+
 	for i := range allocator.storage {
 		n := &allocator.storage[i]
-		n.item.Key = buffers[0][i]
-		n.item.Value = buffers[1][i]
-		n.left = buffers[2][i]
-		n.parent = buffers[3][i]
-		n.right = buffers[4][i]
 
 		doAssert(buffers[5][i] <= uint32(gap))
 		n.color = color(buffers[5][i])
 
 		if n.color == gap {
+			n.right = allocator.nextGap
+			allocator.nextGap = uint32(i)
 			allocator.gapCount++
-			if n.left == 0 {
-				doAssert(allocator.nextGap == 0)
-				allocator.nextGap = uint32(i)
-			}
+			continue
 		}
+
+		n.item.Key = buffers[0][i]
+		n.item.Value = buffers[1][i]
+		n.left = buffers[2][i]
+		n.parent = buffers[3][i]
+		n.right = buffers[4][i]
 	}
-	doAssert(allocator.gapCount == 0 || allocator.nextGap != 0)
-	allocator.hibernatedStorageLen = 0
 }
 
 // Serialize writes the hibernated allocator on disk.
@@ -226,14 +241,10 @@ func (allocator *Allocator) malloc() uint32 {
 	if allocator.gapCount > 0 {
 		allocator.gapCount--
 		key := allocator.nextGap
-		gap := &allocator.storage[key]
+		gapNode := &allocator.storage[key]
+		allocator.nextGap = gapNode.right
 
-		if allocator.gapCount > 0 {
-			allocator.nextGap = gap.right
-			allocator.storage[allocator.nextGap].left = 0
-		}
-
-		*gap = node{}
+		*gapNode = node{}
 		return key
 	}
 
@@ -258,17 +269,13 @@ func (allocator *Allocator) free(key uint32) {
 		panic("node #0 is special and cannot be deallocated")
 	}
 
+	doAssert(allocator.gapCount == 0 || allocator.nextGap != 0)
+
 	gapNode := &allocator.storage[key]
 	doAssert(gapNode.color != gap)
-
 	*gapNode = node{
-		left:  0,
 		right: allocator.nextGap,
 		color: gap,
-	}
-	if allocator.gapCount > 0 {
-		doAssert(allocator.nextGap != 0)
-		allocator.storage[allocator.nextGap].left = key
 	}
 	allocator.gapCount++
 	allocator.nextGap = key
