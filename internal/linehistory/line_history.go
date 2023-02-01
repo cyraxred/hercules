@@ -332,8 +332,8 @@ func (analyser *LineHistoryAnalyser) Fork(n int) []core.PipelineItem {
 		clone.fileAllocator = clone.fileAllocator.Clone()
 		for key, file := range analyser.files {
 			clone.files[key] = file.CloneShallow(clone.fileAllocator)
-			n := key
-			clone.fileNames[file.Id] = &n
+			name := key
+			clone.fileNames[file.Id] = &name
 		}
 		result[i] = &clone
 	}
@@ -513,6 +513,9 @@ func (analyser *LineHistoryAnalyser) updateChangeList(f *File, currentTime, prev
 		analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
 		return
 	}
+	if analyser.changes == nil {
+		panic("unexpected")
+	}
 	analyser.changes = append(analyser.changes, LineHistoryChange{
 		FileId:     f.Id,
 		CurrTick:   curTick,
@@ -610,6 +613,11 @@ func (analyser *LineHistoryAnalyser) handleDeletion(
 	}
 	file.Update(packPersonWithTick(author, tick), 0, 0, lines)
 	file.Delete()
+
+	if analyser.changes == nil {
+		panic("unexpected")
+	}
+
 	analyser.changes = append(analyser.changes, LineHistoryChange{
 		FileId:     file.Id,
 		CurrTick:   tick,

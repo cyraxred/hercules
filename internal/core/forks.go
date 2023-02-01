@@ -348,7 +348,7 @@ func bindOrderNodes(mergedDag map[plumbing.Hash][]*object.Commit) orderer {
 		}
 		if reverse != direction {
 			// one day this must appear in the standard library...
-			for i, j := 0, len(order)-1; i < len(order)/2; i, j = i+1, j-1 {
+			for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
 				order[i], order[j] = order[j], order[i]
 			}
 		}

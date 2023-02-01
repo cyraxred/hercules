@@ -785,35 +785,32 @@ func (pipeline *Pipeline) Run(commits []*object.Commit) (map[LeafPipelineItem]in
 	runTimePerItem := map[string]float64{}
 
 	isMerge := func(index int, commit plumbing.Hash) bool {
-		match := false
 		// look for the same hash backward
 		for i := index - 1; i > 0; i-- {
 			switch plan[i].Action {
 			case runActionHibernate, runActionBoot:
 				continue
 			case runActionCommit:
-				match = plan[i].Commit.Hash == commit
-				fallthrough
-			default:
-				i = 0
+				if plan[i].Commit.Hash == commit {
+					return true
+				}
 			}
+			break
 		}
-		if match {
-			return true
-		}
+
 		// look for the same hash forward
 		for i := index + 1; i < len(plan); i++ {
 			switch plan[i].Action {
 			case runActionHibernate, runActionBoot:
 				continue
 			case runActionCommit:
-				match = plan[i].Commit.Hash == commit
-				fallthrough
-			default:
-				i = len(plan)
+				if plan[i].Commit.Hash == commit {
+					return true
+				}
 			}
+			break
 		}
-		return match
+		return false
 	}
 
 	commitIndex := 0

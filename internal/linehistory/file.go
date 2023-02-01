@@ -313,13 +313,21 @@ func (file *File) Merge(day int, others ...*File) {
 			}
 		}
 	}
-	for i, l := range myself {
-		if l&TreeMergeMark == TreeMergeMark {
-			// original merge conflict resolution
+	for i, n := 0, 0; i >= 0; i++ {
+		switch {
+		case i == len(myself):
+			i = -2
+		case myself[i]&TreeMergeMark == TreeMergeMark:
 			myself[i] = day
-			file.updateTime(day, day, 1)
+			n++
+			continue
+		}
+		if n > 0 {
+			file.updateTime(day, day, n)
+			n = 0
 		}
 	}
+
 	// now we need to reconstruct the tree from the discrete values
 	file.tree.Erase()
 	tree := rbtree.NewRBTree(file.tree.Allocator())
