@@ -55,14 +55,12 @@ func (allocator Allocator) Clone() *Allocator {
 	if allocator.storage == nil {
 		panic("cannot clone a hibernated allocator")
 	}
-	newAllocator := &Allocator{
+	return &Allocator{
 		HibernationThreshold: allocator.HibernationThreshold,
-		storage:              make([]node, len(allocator.storage), cap(allocator.storage)),
+		storage:              append(make([]node, 0, cap(allocator.storage)), allocator.storage...),
 		gapCount:             allocator.gapCount,
 		nextGap:              allocator.nextGap,
 	}
-	copy(newAllocator.storage, allocator.storage)
-	return newAllocator
 }
 
 // Hibernate compresses the allocated memory.

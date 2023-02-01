@@ -116,9 +116,17 @@ func (file *File) CloneShallow(allocator *rbtree.Allocator) *File {
 	return &File{tree: file.tree.CloneShallow(allocator), updaters: file.updaters, Id: file.Id}
 }
 
+func (file *File) CloneShallowWithUpdaters(allocator *rbtree.Allocator, updaters ...Updater) *File {
+	return &File{tree: file.tree.CloneShallow(allocator), updaters: updaters, Id: file.Id}
+}
+
 // CloneDeep copies the file. It performs a deep copy of the tree.
 func (file *File) CloneDeep(allocator *rbtree.Allocator) *File {
 	return &File{tree: file.tree.CloneDeep(allocator), updaters: file.updaters, Id: file.Id}
+}
+
+func (file *File) CloneDeepWithUpdaters(allocator *rbtree.Allocator, updaters ...Updater) *File {
+	return &File{tree: file.tree.CloneDeep(allocator), updaters: updaters, Id: file.Id}
 }
 
 // Delete deallocates the file.

@@ -280,7 +280,7 @@ func TestLinesConsume(t *testing.T) {
 
 	{
 		assert.Len(t, bd.files, 2)
-		assert.Len(t, bd.fileForgottenNames, 1)
+		assert.Len(t, bd.fileAbandonedNames, 1)
 
 		resolver := resultChanges.Resolver
 		assert.Equal(t, "", resolver.NameOf(0))
