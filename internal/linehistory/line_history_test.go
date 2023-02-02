@@ -163,7 +163,7 @@ func TestLinesConsume(t *testing.T) {
 	result, err = bd.Consume(deps)
 	assert.Nil(t, err)
 
-	assert.Equal(t, bd.previousTick, 0)
+	assert.Equal(t, TickNumber(0), bd.previousTick)
 
 	assert.Len(t, result, 1)
 	resultChanges := result[DependencyLineHistory].(LineHistoryChanges)
@@ -259,7 +259,7 @@ func TestLinesConsume(t *testing.T) {
 	deps[items.DependencyFileDiff] = result[items.DependencyFileDiff]
 	result, err = bd.Consume(deps)
 	assert.Nil(t, err)
-	assert.Equal(t, bd.previousTick, 30)
+	assert.Equal(t, TickNumber(30), bd.previousTick)
 
 	assert.Len(t, result, 1)
 	resultChanges = result[DependencyLineHistory].(LineHistoryChanges)
@@ -291,15 +291,15 @@ func TestLinesConsume(t *testing.T) {
 
 		for _, c := range resultChanges.Changes {
 			if c.IsDelete() {
-				assert.Equal(t, identity.AuthorMissing, c.CurrAuthor)
-				assert.Equal(t, identity.AuthorMissing, c.PrevAuthor)
+				assert.Equal(t, AuthorId(identity.AuthorMissing), c.CurrAuthor)
+				assert.Equal(t, AuthorId(identity.AuthorMissing), c.PrevAuthor)
 				deleted[c.FileId] += 1
 			} else {
-				assert.NotEqual(t, identity.AuthorMissing, c.CurrAuthor)
-				assert.NotEqual(t, identity.AuthorMissing, c.PrevAuthor)
+				assert.NotEqual(t, AuthorId(identity.AuthorMissing), c.CurrAuthor)
+				assert.NotEqual(t, AuthorId(identity.AuthorMissing), c.PrevAuthor)
 				lines[c.FileId] += c.Delta
 			}
-			assert.Equal(t, 30, c.CurrTick)
+			assert.Equal(t, TickNumber(30), c.CurrTick)
 		}
 
 		assert.Equal(t, 543, bd.files["burndown.go"].Len())

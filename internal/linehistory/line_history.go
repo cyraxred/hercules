@@ -66,10 +66,10 @@ type LineHistoryAnalyser struct {
 	hibernatedFileName string
 
 	// tick is the most recent tick index processed.
-	tick int
+	tick TickNumber
 	// previousTick is the tick from the previous sample period -
 	// different from TicksSinceStart.previousTick.
-	previousTick int
+	previousTick TickNumber
 
 	changes []LineHistoryChange
 
@@ -84,11 +84,14 @@ func (p *counterHolder) next() FileId {
 	return FileId(atomic.AddInt32(&p.atomicCounter, 1))
 }
 
+type TickNumber int32
+type AuthorId int32
+
 type LineHistoryChange struct {
 	FileId
-	CurrTick, CurrAuthor int
-	PrevTick, PrevAuthor int
-	Delta                int
+	CurrTick, PrevTick     TickNumber
+	CurrAuthor, PrevAuthor AuthorId
+	Delta                  int
 }
 
 func (v LineHistoryChange) IsDelete() bool {
@@ -142,7 +145,7 @@ func (v FileIdResolver) ForEachFile(callback func(id FileId, name string)) bool 
 	return true
 }
 
-func (v FileIdResolver) ScanFile(id FileId, callback func(line, tick, author int)) bool {
+func (v FileIdResolver) ScanFile(id FileId, callback func(line int, tick TickNumber, author AuthorId)) bool {
 	if v.analyser == nil {
 		return false
 	}
@@ -271,10 +274,8 @@ func (analyser *LineHistoryAnalyser) Consume(deps map[string]interface{}) (map[s
 		panic("LineHistoryAnalyser.Consume() was called on a hibernated instance")
 	}
 
-	author := deps[identity.DependencyAuthor].(int)
-	tick := deps[items.DependencyTick].(int)
-
-	analyser.tick = tick
+	author := AuthorId(deps[identity.DependencyAuthor].(int))
+	analyser.tick = TickNumber(deps[items.DependencyTick].(int))
 	analyser.onNewTick()
 
 	cache := deps[items.DependencyBlobCache].(map[plumbing.Hash]*items.CachedBlob)
@@ -297,8 +298,6 @@ func (analyser *LineHistoryAnalyser) Consume(deps map[string]interface{}) (map[s
 			return nil, err
 		}
 	}
-	// in case there is a merge analyser.tick equals to TreeMergeMark
-	analyser.tick = tick
 
 	result := map[string]interface{}{DependencyLineHistory: LineHistoryChanges{
 		Changes:  analyser.changes,
@@ -459,18 +458,17 @@ func (analyser *LineHistoryAnalyser) Boot() error {
 // Strictly speaking, int can be 64-bit and then the author index occupies 32+18 bits.
 // This hack is needed to simplify the values storage inside File-s. We can compare
 // different values together and they are compared as ticks for the same author.
-func packPersonWithTick(person int, tick int) int {
-	result := tick & TreeMergeMark
+func packPersonWithTick(author AuthorId, tick TickNumber) int {
 
+	if author > identity.AuthorMissing {
+		log.Fatalf("person > AuthorMissing %d \n%s", author, string(debug.Stack()))
+	}
 	if tick > TreeMergeMark {
 		log.Fatalf("tick > TreeMergeMark %d %d\n%s", tick, TreeMergeMark, string(debug.Stack()))
 	}
 
-	result |= person << TreeMaxBinPower
-
-	if person > identity.AuthorMissing {
-		log.Fatalf("person > AuthorMissing %d \n%s", person, string(debug.Stack()))
-	}
+	result := int(tick) & TreeMergeMark
+	result |= int(author) << TreeMaxBinPower
 
 	// This effectively means max (16383 - 1) ticks (>44 years) and (262143 - 3) devs.
 	// One tick less because TreeMergeMark = ((1 << 14) - 1) is a special tick.
@@ -481,8 +479,8 @@ func packPersonWithTick(person int, tick int) int {
 	return result
 }
 
-func unpackPersonWithTick(value int) (author int, tick int) {
-	return value >> TreeMaxBinPower, value & TreeMergeMark
+func unpackPersonWithTick(value int) (author AuthorId, tick TickNumber) {
+	return AuthorId(value >> TreeMaxBinPower), TickNumber(value & TreeMergeMark)
 }
 
 func (analyser *LineHistoryAnalyser) onNewTick() {
@@ -509,15 +507,13 @@ func (analyser *LineHistoryAnalyser) updateChangeList(f *File, currentTime, prev
 }
 
 func (analyser *LineHistoryAnalyser) newFile(
-	_ plumbing.Hash, name string, author int, tick int, size int) (*File, error) {
-
-	tick = packPersonWithTick(author, tick)
+	_ plumbing.Hash, name string, author AuthorId, tick TickNumber, size int) (*File, error) {
 
 	analyser.forgetFileName(name)
 
 	fileId := analyser.fileIdCounter.next()
 	analyser.fileNames[fileId] = name
-	file := NewFile(fileId, tick, size, analyser.fileAllocator, analyser.updateChangeList)
+	file := NewFile(fileId, packPersonWithTick(author, tick), size, analyser.fileAllocator, analyser.updateChangeList)
 	analyser.files[name] = file
 
 	return file, nil
@@ -533,7 +529,7 @@ func (analyser *LineHistoryAnalyser) forgetFileName(name string) *File {
 }
 
 func (analyser *LineHistoryAnalyser) handleInsertion(
-	change *object.Change, author int, cache map[plumbing.Hash]*items.CachedBlob) error {
+	change *object.Change, author AuthorId, cache map[plumbing.Hash]*items.CachedBlob) error {
 	blob := cache[change.To.TreeEntry.Hash]
 
 	name := change.To.Name
@@ -555,7 +551,7 @@ func (analyser *LineHistoryAnalyser) handleInsertion(
 }
 
 func (analyser *LineHistoryAnalyser) handleDeletion(
-	change *object.Change, author int, cache map[plumbing.Hash]*items.CachedBlob) error {
+	change *object.Change, author AuthorId, cache map[plumbing.Hash]*items.CachedBlob) error {
 
 	var name string
 	if change.To.TreeEntry.Hash != plumbing.ZeroHash {
@@ -576,15 +572,14 @@ func (analyser *LineHistoryAnalyser) handleDeletion(
 	// Parallel independent file removals are incorrectly handled. The solution seems to be quite
 	// complex, but feel free to suggest your ideas.
 	// These edge cases happen *very* rarely, so we don't bother for now.
-	tick := analyser.tick
-	file.Update(packPersonWithTick(author, tick), 0, 0, lines)
+	file.Update(packPersonWithTick(author, analyser.tick), 0, 0, lines)
 	file.Delete()
 
 	analyser.changes = append(analyser.changes, LineHistoryChange{
 		FileId:     file.Id,
-		CurrTick:   tick,
+		CurrTick:   analyser.tick,
 		CurrAuthor: identity.AuthorMissing,
-		PrevTick:   tick,
+		PrevTick:   analyser.tick,
 		PrevAuthor: identity.AuthorMissing,
 		Delta:      math.MinInt,
 	})
@@ -593,7 +588,7 @@ func (analyser *LineHistoryAnalyser) handleDeletion(
 }
 
 func (analyser *LineHistoryAnalyser) handleModification(
-	change *object.Change, author int, cache map[plumbing.Hash]*items.CachedBlob,
+	change *object.Change, author AuthorId, cache map[plumbing.Hash]*items.CachedBlob,
 	diffs map[string]items.FileDiffData) error {
 
 	file, exists := analyser.files[change.From.Name]

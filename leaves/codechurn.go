@@ -49,6 +49,8 @@ type CodeChurnAnalysis struct {
 
 type churnFileEntry struct {
 	insertedLines int64
+	ownedLines    int64
+
 	deleteHistory map[ /* by person */ int]sparseHistory
 }
 
@@ -185,10 +187,10 @@ func (analyser *CodeChurnAnalysis) Consume(deps map[string]interface{}) (map[str
 		if change.IsDelete() {
 			continue
 		}
-		if change.PrevAuthor >= analyser.PeopleNumber && change.PrevAuthor != identity.AuthorMissing {
+		if int(change.PrevAuthor) >= analyser.PeopleNumber && change.PrevAuthor != identity.AuthorMissing {
 			change.PrevAuthor = identity.AuthorMissing
 		}
-		if change.CurrAuthor >= analyser.PeopleNumber && change.CurrAuthor != identity.AuthorMissing {
+		if int(change.CurrAuthor) >= analyser.PeopleNumber && change.CurrAuthor != identity.AuthorMissing {
 			change.CurrAuthor = identity.AuthorMissing
 		}
 		analyser.updateGlobal(change)
