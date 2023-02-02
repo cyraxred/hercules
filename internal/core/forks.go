@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"reflect"
 	"sort"
@@ -560,15 +561,8 @@ func generatePlan(
 			})
 			counter++
 		}
-		var branch int
-		{
-			var exists bool
-			branch, exists = branches[commit.Hash]
-			if !exists {
-				branch = -1
-			}
-		}
-		branchExists := func() bool { return branch >= rootBranchIndex }
+
+		branchExists := func(branch int) bool { return branch >= rootBranchIndex }
 		appendCommit := func(c *object.Commit, branch int) {
 			if branch == 0 {
 				log.Panicf("setting a zero branch for %s", c.Hash.String())
@@ -579,60 +573,70 @@ func generatePlan(
 				Items:  []int{branch},
 			})
 		}
-		appendMergeIfNeeded := func() bool {
-			if len(parents[commit.Hash]) < 2 {
-				return false
+		buildMergeList := func(branch int) (int, []int) {
+			commitParents := parents[commit.Hash]
+			if len(commitParents) < 2 {
+				return branch, nil
 			}
 			// merge after the merge commit (the first in the sequence)
-			var items []int
-			minBranch := 1 << 31
-			for parent := range parents[commit.Hash] {
-				parentBranch := -1
-				if parents, exists := branchers[commit.Hash]; exists {
-					if inheritedBranch, exists := parents[parent]; exists {
-						parentBranch = inheritedBranch
-					}
-				}
-				if parentBranch == -1 {
-					parentBranch = branches[parent]
-					if parentBranch < rootBranchIndex {
-						log.Panicf("parent %s > %s does not have a branch assigned",
+			items := make([]int, 0, len(commitParents))
+			minBranch := math.MaxInt
+			minBranchIndex := 0
+
+			for parent := range commitParents {
+				parentBranch := branchers[commit.Hash][parent]
+				if !branchExists(parentBranch) {
+					if parentBranch = branches[parent]; !branchExists(parentBranch) {
+						log.Panicf("parent %s => %s does not have a branch assigned",
 							parent.String(), commit.Hash.String())
 					}
 				}
-				if len(dag[parent]) == 1 && minBranch > parentBranch {
+
+				if minBranch > parentBranch && len(dag[parent]) == 1 {
 					minBranch = parentBranch
+					minBranchIndex = len(items)
 				}
+
 				items = append(items, parentBranch)
-				if parentBranch != branch {
-					appendCommit(commit, parentBranch)
-				}
 			}
 			// there should be no duplicates in items
-			if minBranch < 1<<31 {
+			if minBranch < math.MaxInt {
 				branch = minBranch
-				branches[commit.Hash] = minBranch
-			} else if !branchExists() {
-				log.Panicf("failed to assign the branch to merge %s", commit.Hash.String())
+				if minBranchIndex != 0 {
+					items[minBranchIndex], items[0] = items[0], items[minBranchIndex]
+				}
 			}
-			plan = append(plan, runAction{
-				Action: runActionMerge,
-				Commit: nil,
-				Items:  items,
-			})
-			return true
+			return branch, items
 		}
+
+		branch := -1
+		if branch2, ok := branches[commit.Hash]; ok {
+			branch = branch2
+		}
+
 		var head plumbing.Hash
 		if subseq, exists := mergedSeq[commit.Hash]; exists {
 			for subseqIndex, offspring := range subseq {
-				if branchExists() {
-					appendCommit(offspring, branch)
-				}
 				if subseqIndex == 0 {
-					if !appendMergeIfNeeded() && !branchExists() {
+					minBranch, items := buildMergeList(branch)
+					if minBranch != branch {
+						branches[commit.Hash] = minBranch
+						branch = minBranch
+					} else if !branchExists(branch) {
 						log.Panicf("head of the sequence does not have an assigned branch: %s",
 							commit.Hash.String())
 					}
+
+					appendCommit(offspring, minBranch)
+					if len(items) > 0 {
+						plan = append(plan, runAction{
+							Action: runActionMerge,
+							Commit: nil,
+							Items:  items,
+						})
+					}
+				} else if branchExists(branch) {
+					appendCommit(offspring, branch)
 				}
 			}
 			head = subseq[len(subseq)-1].Hash
@@ -650,12 +654,12 @@ func generatePlan(
 				if _, exists := branches[child.Hash]; !exists {
 					branches[child.Hash] = counter
 				}
-				parents := branchers[child.Hash]
-				if parents == nil {
-					parents = map[plumbing.Hash]int{}
-					branchers[child.Hash] = parents
+				childParents := branchers[child.Hash]
+				if childParents == nil {
+					childParents = map[plumbing.Hash]int{}
+					branchers[child.Hash] = childParents
 				}
-				parents[head] = counter
+				childParents[head] = counter
 				children = append(children, counter)
 				counter++
 			}
