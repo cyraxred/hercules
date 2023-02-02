@@ -15,12 +15,12 @@ import (
 
 // OneShotMergeProcessor provides the convenience method to consume merges only once.
 type OneShotMergeProcessor struct {
-	merges map[plumbing.Hash]bool
+	merges map[plumbing.Hash]struct{}
 }
 
 // Initialize resets OneShotMergeProcessor.
 func (proc *OneShotMergeProcessor) Initialize() {
-	proc.merges = map[plumbing.Hash]bool{}
+	proc.merges = map[plumbing.Hash]struct{}{}
 }
 
 // ShouldConsumeCommit returns true on regular commits. It also returns true upon
@@ -30,8 +30,8 @@ func (proc *OneShotMergeProcessor) ShouldConsumeCommit(deps map[string]interface
 	if commit.NumParents() <= 1 {
 		return true
 	}
-	if !proc.merges[commit.Hash] {
-		proc.merges[commit.Hash] = true
+	if _, ok := proc.merges[commit.Hash]; !ok {
+		proc.merges[commit.Hash] = struct{}{}
 		return true
 	}
 	return false

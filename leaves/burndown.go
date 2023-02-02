@@ -277,6 +277,7 @@ func (analyser *BurndownAnalysis) updateChurnMatrix(change LineHistoryChange) {
 // Finalize returns the result of the analysis. Further calls to Consume() are not expected.
 func (analyser *BurndownAnalysis) Finalize() interface{} {
 	globalHistory, lastTick := analyser.groupSparseHistory(analyser.globalHistory, -1)
+
 	fileHistories := map[string]burndown.DenseHistory{}
 	fileOwnership := map[string]map[int]int{}
 	for fileId, history := range analyser.fileHistories {
@@ -288,6 +289,55 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 		}
 	}
 
+	peopleHistories := make([]burndown.DenseHistory, analyser.PeopleNumber)
+
+	if analyser.PeopleNumber > 0 {
+		analyser.collectFileOwnership(fileOwnership)
+
+		for i, history := range analyser.peopleHistories {
+			if len(history) > 0 {
+				// there can be people with only trivial merge commits and without own lines
+				peopleHistories[i], _ = analyser.groupSparseHistory(history, lastTick)
+			} else {
+				peopleHistories[i] = make(burndown.DenseHistory, len(globalHistory))
+				for j, gh := range globalHistory {
+					peopleHistories[i][j] = make([]int64, len(gh))
+				}
+			}
+		}
+	}
+
+	var peopleMatrix burndown.DenseHistory
+	if len(analyser.matrix) > 0 {
+		peopleMatrix = make(burndown.DenseHistory, analyser.PeopleNumber)
+		for i, row := range analyser.matrix {
+			pRow := make([]int64, analyser.PeopleNumber+2)
+			peopleMatrix[i] = pRow
+			for key, val := range row {
+				if key == identity.AuthorMissing {
+					key = -1
+				} else if key == authorSelf {
+					key = -2
+				}
+				pRow[key+2] = val
+			}
+		}
+	}
+
+	return BurndownResult{
+		GlobalHistory:      globalHistory,
+		FileHistories:      fileHistories,
+		FileOwnership:      fileOwnership,
+		PeopleHistories:    peopleHistories,
+		PeopleMatrix:       peopleMatrix,
+		tickSize:           analyser.tickSize,
+		reversedPeopleDict: analyser.reversedPeopleDict,
+		sampling:           analyser.Sampling,
+		granularity:        analyser.Granularity,
+	}
+}
+
+func (analyser *BurndownAnalysis) collectFileOwnership(fileOwnership map[string]map[int]int) {
 	analyser.fileResolver.ForEachFile(func(fileId linehistory.FileId, fileName string) {
 		previousLine := 0
 		previousAuthor := identity.AuthorMissing
@@ -308,46 +358,6 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 			fileOwnership[fileName] = ownership
 		}
 	})
-
-	peopleHistories := make([]burndown.DenseHistory, analyser.PeopleNumber)
-	for i, history := range analyser.peopleHistories {
-		if len(history) > 0 {
-			// there can be people with only trivial merge commits and without own lines
-			peopleHistories[i], _ = analyser.groupSparseHistory(history, lastTick)
-		} else {
-			peopleHistories[i] = make(burndown.DenseHistory, len(globalHistory))
-			for j, gh := range globalHistory {
-				peopleHistories[i][j] = make([]int64, len(gh))
-			}
-		}
-	}
-	var peopleMatrix burndown.DenseHistory
-	if len(analyser.matrix) > 0 {
-		peopleMatrix = make(burndown.DenseHistory, analyser.PeopleNumber)
-		for i, row := range analyser.matrix {
-			pRow := make([]int64, analyser.PeopleNumber+2)
-			peopleMatrix[i] = pRow
-			for key, val := range row {
-				if key == identity.AuthorMissing {
-					key = -1
-				} else if key == authorSelf {
-					key = -2
-				}
-				pRow[key+2] = val
-			}
-		}
-	}
-	return BurndownResult{
-		GlobalHistory:      globalHistory,
-		FileHistories:      fileHistories,
-		FileOwnership:      fileOwnership,
-		PeopleHistories:    peopleHistories,
-		PeopleMatrix:       peopleMatrix,
-		tickSize:           analyser.tickSize,
-		reversedPeopleDict: analyser.reversedPeopleDict,
-		sampling:           analyser.Sampling,
-		granularity:        analyser.Granularity,
-	}
 }
 
 // Serialize converts the analysis result as returned by Finalize() to text or bytes.
