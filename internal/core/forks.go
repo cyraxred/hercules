@@ -89,7 +89,7 @@ const (
 
 // planPrintFunc is used to print the execution plan in prepareRunPlan().
 var planPrintFunc = func(args ...interface{}) {
-	fmt.Fprintln(os.Stderr)
+	//	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, args...)
 }
 
@@ -159,8 +159,7 @@ func getMasterBranch(branches map[int][]PipelineItem) []PipelineItem {
 }
 
 // prepareRunPlan schedules the actions for Pipeline.Run().
-func prepareRunPlan(commits []*object.Commit, hibernationDistance int,
-	printResult bool) []runAction {
+func prepareRunPlan(commits []*object.Commit, hibernationDistance int) []runAction {
 	hashes, dag := buildDag(commits)
 	leaveRootComponent(hashes, dag)
 	mergedDag, mergedSeq := mergeDag(hashes, dag)
@@ -179,11 +178,6 @@ func prepareRunPlan(commits []*object.Commit, hibernationDistance int,
 	plan = collectGarbage(plan)
 	if hibernationDistance > 0 {
 		plan = insertHibernateBoot(plan, hibernationDistance)
-	}
-	if printResult {
-		for _, p := range plan {
-			printAction(p)
-		}
 	}
 	return plan
 }

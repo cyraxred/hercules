@@ -773,7 +773,13 @@ func (pipeline *Pipeline) Run(commits []*object.Commit) (map[LeafPipelineItem]in
 	if onProgress == nil {
 		onProgress = func(int, int, string) {}
 	}
-	plan := prepareRunPlan(commits, pipeline.HibernationDistance, pipeline.DumpPlan)
+	plan := prepareRunPlan(commits, pipeline.HibernationDistance)
+	if pipeline.DumpPlan {
+		for _, p := range plan {
+			printAction(p)
+		}
+	}
+
 	progressSteps := len(plan) + 2
 	branches := map[int][]PipelineItem{}
 	// we will need rootClone if there is more than one root branch

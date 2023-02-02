@@ -683,7 +683,7 @@ func TestPrepareRunPlanTiny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := prepareRunPlan([]*object.Commit{rootCommit}, 0, true)
+	plan := prepareRunPlan([]*object.Commit{rootCommit}, 0)
 	assert.Len(t, plan, 2)
 	assert.Equal(t, runActionEmerge, plan[0].Action)
 	assert.Equal(t, rootBranchIndex, plan[0].Items[0])
@@ -710,7 +710,7 @@ func TestPrepareRunPlanSmall(t *testing.T) {
 		}
 		return nil
 	})
-	plan := prepareRunPlan(commits, 0, false)
+	plan := prepareRunPlan(commits, 0)
 	/*for _, p := range plan {
 		if p.Commit != nil {
 			fmt.Println(p.Action, p.Commit.Hash.String(), p.Items)
@@ -838,7 +838,7 @@ func TestPrepareRunPlanBig(t *testing.T) {
 				}
 				return nil
 			})
-			plan := prepareRunPlan(commits, 0, false)
+			plan := prepareRunPlan(commits, 0)
 			/*for _, p := range plan {
 				if p.Commit != nil {
 					fmt.Println(p.Action, p.Commit.Hash.String(), p.Items)
