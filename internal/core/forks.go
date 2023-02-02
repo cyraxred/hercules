@@ -192,7 +192,7 @@ func printAction(p runAction) {
 	case runActionFork:
 		planPrintFunc("F", p.Items)
 	case runActionMerge:
-		planPrintFunc("M", p.Items)
+		planPrintFunc("M", p.Items, p.Commit.Hash.String())
 	case runActionEmerge:
 		planPrintFunc("E", p.Items)
 	case runActionDelete:
@@ -631,7 +631,7 @@ func generatePlan(
 					if len(items) > 0 {
 						plan = append(plan, runAction{
 							Action: runActionMerge,
-							Commit: nil,
+							Commit: commit,
 							Items:  items,
 						})
 					}

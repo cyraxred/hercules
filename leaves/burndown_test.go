@@ -191,7 +191,6 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 		deps[items.DependencyFileDiff] = result[items.DependencyFileDiff]
 		deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
 			"cce947b98a050c6d356bc6ba95030254914027b1"))
-		deps[core.DependencyIsMerge] = false
 	}
 
 	lh := LineHistoryAnalyser()
@@ -260,7 +259,6 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 
 	// stage 2
 	// 2b1ed978194a94edeabbca6de7ff3b5771d4d665
-	deps[core.DependencyIsMerge] = false
 	deps[items.DependencyTick] = 30
 	cache = map[plumbing.Hash]*items.CachedBlob{}
 	AddHash(t, cache, "291286b4ac41952cbd1389fda66420ec03c1a9fe")
@@ -478,7 +476,6 @@ func prepareBDForSerialization(t *testing.T, firstAuthor, secondAuthor int) (
 	deps[items.DependencyTreeChanges] = changes
 	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
 		"cce947b98a050c6d356bc6ba95030254914027b1"))
-	deps[core.DependencyIsMerge] = false
 
 	fd := fixtures.FileDiff()
 	{

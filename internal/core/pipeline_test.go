@@ -117,9 +117,12 @@ func (item *testPipelineItem) Consume(deps map[string]interface{}) (map[string]i
 			item.IndexMatches = obj.(int) == 0
 		}
 	}
-	obj, exists = deps[DependencyIsMerge]
-	if exists {
+
+	if obj, exists = deps[DependencyIsMerge]; exists {
 		*item.MergeState++
+		if b, ok := obj.(bool); ok && b {
+			*item.MergeState++
+		}
 	}
 	return map[string]interface{}{"test": item}, nil
 }
@@ -382,7 +385,7 @@ func TestPipelineRunBranches(t *testing.T) {
 	assert.Equal(t, item, result[item].(*testPipelineItem))
 	common := result[nil].(*CommonAnalysisResult)
 	assert.Equal(t, common.CommitsNumber, 5)
-	assert.Equal(t, 5, *item.MergeState)
+	assert.Equal(t, 6, *item.MergeState)
 }
 
 func TestPipelineOnProgress(t *testing.T) {

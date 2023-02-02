@@ -283,16 +283,10 @@ func (analyser *LineHistoryAnalyser) Consume(deps map[string]interface{}) (map[s
 
 	author := deps[identity.DependencyAuthor].(int)
 	tick := deps[items.DependencyTick].(int)
-	if !deps[core.DependencyIsMerge].(bool) {
-		analyser.tick = tick
-		analyser.onNewTick()
-	} else {
-		// effectively disables the status updates if the commit is a merge
-		// we will analyse the conflicts resolution in Merge()
-		analyser.tick = TreeMergeMark
-		analyser.mergedFiles = map[string]bool{}
-		analyser.mergedAuthor = author
-	}
+
+	analyser.tick = tick
+	analyser.onNewTick()
+
 	cache := deps[items.DependencyBlobCache].(map[plumbing.Hash]*items.CachedBlob)
 	treeDiffs := deps[items.DependencyTreeChanges].(object.Changes)
 	fileDiffs := deps[items.DependencyFileDiff].(map[string]items.FileDiffData)

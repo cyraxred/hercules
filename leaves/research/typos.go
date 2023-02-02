@@ -148,9 +148,6 @@ type candidate struct {
 // This function returns the mapping with analysis results. The keys must be the same as
 // in Provides(). If there was an error, nil is returned.
 func (tdb *TyposDatasetBuilder) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
-	if deps[core.DependencyIsMerge].(bool) {
-		return nil, nil
-	}
 	commit := deps[core.DependencyCommit].(*object.Commit).Hash
 	cache := deps[items.DependencyBlobCache].(map[plumbing.Hash]*items.CachedBlob)
 	diffs := deps[items.DependencyFileDiff].(map[string]items.FileDiffData)

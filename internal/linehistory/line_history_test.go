@@ -190,23 +190,9 @@ func TestLinesConsume(t *testing.T) {
 	}
 	assert.Equal(t, resultChanges.Changes, expectedChanges)
 
-	deps[identity.DependencyAuthor] = 1
-	{
-		// check merge hashes
-		bd3 := NewLineHistoryAnalyser()
-		assert.Nil(t, bd3.Initialize(test.Repository))
-		deps[core.DependencyIsMerge] = true
-		_, err = bd3.Consume(deps)
-		assert.Nil(t, err)
-		assert.Equal(t, 1, bd3.mergedAuthor)
-		assert.True(t, bd3.mergedFiles["cmd/hercules/main.go"])
-		assert.True(t, bd3.mergedFiles["analyser.go"], plumbing.ZeroHash)
-		assert.True(t, bd3.mergedFiles[".travis.yml"], plumbing.ZeroHash)
-	}
-
 	// stage 2
 	// 2b1ed978194a94edeabbca6de7ff3b5771d4d665
-	deps[core.DependencyIsMerge] = false
+	deps[identity.DependencyAuthor] = 1
 	deps[items.DependencyTick] = 30
 	cache = map[plumbing.Hash]*items.CachedBlob{}
 	AddHash(t, cache, "291286b4ac41952cbd1389fda66420ec03c1a9fe")
@@ -327,139 +313,6 @@ func TestLinesConsume(t *testing.T) {
 	}
 }
 
-func TestLinesConsumeMergeAuthorMissing(t *testing.T) {
-	deps := map[string]interface{}{}
-	deps[items.DependencyTick] = 0
-	cache := map[plumbing.Hash]*items.CachedBlob{}
-	AddHash(t, cache, "291286b4ac41952cbd1389fda66420ec03c1a9fe")
-	AddHash(t, cache, "c29112dbd697ad9b401333b80c18a63951bc18d9")
-	AddHash(t, cache, "baa64828831d174f40140e4b3cfa77d1e917a2c1")
-	AddHash(t, cache, "dc248ba2b22048cc730c571a748e8ffcf7085ab9")
-	deps[items.DependencyBlobCache] = cache
-	changes := make(object.Changes, 3)
-	treeFrom, _ := test.Repository.TreeObject(plumbing.NewHash(
-		"a1eb2ea76eb7f9bfbde9b243861474421000eb96"))
-	treeTo, _ := test.Repository.TreeObject(plumbing.NewHash(
-		"994eac1cd07235bb9815e547a75c84265dea00f5"))
-	changes[0] = &object.Change{From: object.ChangeEntry{
-		Name: "analyser.go",
-		Tree: treeFrom,
-		TreeEntry: object.TreeEntry{
-			Name: "analyser.go",
-			Mode: 0100644,
-			Hash: plumbing.NewHash("dc248ba2b22048cc730c571a748e8ffcf7085ab9"),
-		},
-	}, To: object.ChangeEntry{
-		Name: "analyser.go",
-		Tree: treeTo,
-		TreeEntry: object.TreeEntry{
-			Name: "analyser.go",
-			Mode: 0100644,
-			Hash: plumbing.NewHash("baa64828831d174f40140e4b3cfa77d1e917a2c1"),
-		},
-	}}
-	changes[1] = &object.Change{From: object.ChangeEntry{}, To: object.ChangeEntry{
-		Name: "cmd/hercules/main.go",
-		Tree: treeTo,
-		TreeEntry: object.TreeEntry{
-			Name: "cmd/hercules/main.go",
-			Mode: 0100644,
-			Hash: plumbing.NewHash("c29112dbd697ad9b401333b80c18a63951bc18d9"),
-		},
-	},
-	}
-	changes[2] = &object.Change{From: object.ChangeEntry{}, To: object.ChangeEntry{
-		Name: ".travis.yml",
-		Tree: treeTo,
-		TreeEntry: object.TreeEntry{
-			Name: ".travis.yml",
-			Mode: 0100644,
-			Hash: plumbing.NewHash("291286b4ac41952cbd1389fda66420ec03c1a9fe"),
-		},
-	},
-	}
-	deps[items.DependencyTreeChanges] = changes
-	fd := fixtures.FileDiff()
-	{
-		fileDiff, err := fd.Consume(deps)
-		assert.Nil(t, err)
-		deps[items.DependencyFileDiff] = fileDiff[items.DependencyFileDiff]
-	}
-	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
-		"cce947b98a050c6d356bc6ba95030254914027b1"))
-
-	// check that we survive merge + missing author
-	bd := NewLineHistoryAnalyser()
-	assert.Nil(t, bd.Initialize(test.Repository))
-	deps[identity.DependencyAuthor] = 0
-	deps[core.DependencyIsMerge] = false
-
-	expectedChanges := append([]LineHistoryChange(nil), LineHistoryChange{
-		FileId: 1, Delta: 926,
-	}, LineHistoryChange{
-		FileId: 2, Delta: 207,
-	}, LineHistoryChange{
-		FileId: 3, Delta: 12,
-	})
-
-	{
-		result, err := bd.Consume(deps)
-		assert.Nil(t, err)
-		assert.Len(t, result, 1)
-		resultChanges := result[DependencyLineHistory].(LineHistoryChanges)
-
-		assert.Equal(t, expectedChanges, resultChanges.Changes)
-	}
-
-	AddHash(t, cache, "4cdb0d969cf976f76634d1f348da3a175c9b4501")
-	treeFrom, _ = test.Repository.TreeObject(plumbing.NewHash(
-		"994eac1cd07235bb9815e547a75c84265dea00f5"))
-	treeTo, _ = test.Repository.TreeObject(plumbing.NewHash(
-		"89f33a2320f6cd0bd3d16351cfc10bea7e3dce1a"))
-	changes = object.Changes{
-		&object.Change{
-			From: object.ChangeEntry{
-				Name: ".travis.yml",
-				Tree: treeFrom,
-				TreeEntry: object.TreeEntry{
-					Name: ".travis.yml",
-					Mode: 0100644,
-					Hash: plumbing.NewHash("291286b4ac41952cbd1389fda66420ec03c1a9fe"),
-				},
-			}, To: object.ChangeEntry{
-				Name: ".travis.yml",
-				Tree: treeTo,
-				TreeEntry: object.TreeEntry{
-					Name: ".travis.yml",
-					Mode: 0100644,
-					Hash: plumbing.NewHash("4cdb0d969cf976f76634d1f348da3a175c9b4501"),
-				},
-			},
-		},
-	}
-	deps[items.DependencyTreeChanges] = changes
-	{
-		fileDiff, err := fd.Consume(deps)
-		assert.Nil(t, err)
-		deps[items.DependencyFileDiff] = fileDiff[items.DependencyFileDiff]
-	}
-	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
-		"7ef5c47aa79a1b229e3227d9ffe2401dbcbeb22f"))
-	deps[identity.DependencyAuthor] = identity.AuthorMissing
-	deps[core.DependencyIsMerge] = true
-
-	{
-		result, err := bd.Consume(deps)
-		assert.Nil(t, err)
-		assert.Len(t, result, 1)
-		resultChanges := result[DependencyLineHistory].(LineHistoryChanges)
-
-		assert.Len(t, resultChanges.Changes, 0)
-	}
-
-	assert.Equal(t, identity.AuthorMissing, bd.mergedAuthor)
-}
-
 func bakeBurndownForSerialization(t *testing.T, firstAuthor, secondAuthor int) *LineHistoryAnalyser {
 	bd := NewLineHistoryAnalyser()
 	assert.Nil(t, bd.Initialize(test.Repository))
@@ -518,7 +371,6 @@ func bakeBurndownForSerialization(t *testing.T, firstAuthor, secondAuthor int) *
 	deps[items.DependencyTreeChanges] = changes
 	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
 		"cce947b98a050c6d356bc6ba95030254914027b1"))
-	deps[core.DependencyIsMerge] = false
 	fd := fixtures.FileDiff()
 	result, _ := fd.Consume(deps)
 	deps[items.DependencyFileDiff] = result[items.DependencyFileDiff]

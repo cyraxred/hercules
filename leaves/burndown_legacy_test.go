@@ -190,7 +190,6 @@ func TestLegacyBurndownConsumeFinalize(t *testing.T) {
 	deps[items.DependencyFileDiff] = result[items.DependencyFileDiff]
 	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
 		"cce947b98a050c6d356bc6ba95030254914027b1"))
-	deps[core.DependencyIsMerge] = false
 
 	bd := LegacyBurndownAnalysis{
 		Granularity:  30,
@@ -251,22 +250,9 @@ func TestLegacyBurndownConsumeFinalize(t *testing.T) {
 	}
 
 	deps[identity.DependencyAuthor] = 1
-	{
-		// check merge hashes
-		bd3 := LegacyBurndownAnalysis{}
-		assert.Nil(t, bd3.Initialize(test.Repository))
-		deps[core.DependencyIsMerge] = true
-		_, err = bd3.Consume(deps)
-		assert.Nil(t, err)
-		assert.Equal(t, 1, bd3.mergedAuthor)
-		assert.True(t, bd3.mergedFiles["cmd/hercules/main.go"])
-		assert.True(t, bd3.mergedFiles["analyser.go"], plumbing.ZeroHash)
-		assert.True(t, bd3.mergedFiles[".travis.yml"], plumbing.ZeroHash)
-	}
 
 	// stage 2
 	// 2b1ed978194a94edeabbca6de7ff3b5771d4d665
-	deps[core.DependencyIsMerge] = false
 	deps[items.DependencyTick] = 30
 	cache = map[plumbing.Hash]*items.CachedBlob{}
 	AddHash(t, cache, "291286b4ac41952cbd1389fda66420ec03c1a9fe")
@@ -475,7 +461,6 @@ func TestLegacyBurndownConsumeMergeAuthorMissing(t *testing.T) {
 	bd := LegacyBurndownAnalysis{PeopleNumber: 1}
 	assert.Nil(t, bd.Initialize(test.Repository))
 	deps[identity.DependencyAuthor] = 0
-	deps[core.DependencyIsMerge] = false
 	_, err = bd.Consume(deps)
 	assert.Nil(t, err)
 
@@ -583,7 +568,6 @@ func bakeBurndownForSerialization(t *testing.T, firstAuthor, secondAuthor int) (
 	deps[items.DependencyTreeChanges] = changes
 	deps[core.DependencyCommit], _ = test.Repository.CommitObject(plumbing.NewHash(
 		"cce947b98a050c6d356bc6ba95030254914027b1"))
-	deps[core.DependencyIsMerge] = false
 	fd := fixtures.FileDiff()
 	result, _ := fd.Consume(deps)
 	deps[items.DependencyFileDiff] = result[items.DependencyFileDiff]

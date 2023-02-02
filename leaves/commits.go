@@ -114,9 +114,6 @@ func (ca *CommitsAnalysis) Initialize(repository *git.Repository) error {
 // This function returns the mapping with analysis results. The keys must be the same as
 // in Provides(). If there was an error, nil is returned.
 func (ca *CommitsAnalysis) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
-	if deps[core.DependencyIsMerge].(bool) {
-		return nil, nil
-	}
 	commit := deps[core.DependencyCommit].(*object.Commit)
 	author := deps[identity.DependencyAuthor].(int)
 	lineStats := deps[items.DependencyLineStats].(map[object.ChangeEntry]items.LineStats)

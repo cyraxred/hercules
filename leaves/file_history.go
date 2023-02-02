@@ -104,11 +104,6 @@ func (history *FileHistoryAnalysis) Initialize(repository *git.Repository) error
 // This function returns the mapping with analysis results. The keys must be the same as
 // in Provides(). If there was an error, nil is returned.
 func (history *FileHistoryAnalysis) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
-	if deps[core.DependencyIsMerge].(bool) {
-		// we ignore merge commits
-		// TODO(vmarkovtsev): handle them better
-		return nil, nil
-	}
 	history.lastCommit = deps[core.DependencyCommit].(*object.Commit)
 	commit := history.lastCommit.Hash
 	changes := deps[items.DependencyTreeChanges].(object.Changes)

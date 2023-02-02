@@ -84,11 +84,6 @@ func (lsc *LinesStatsCalculator) Initialize(repository *git.Repository) error {
 // in Provides(). If there was an error, nil is returned.
 func (lsc *LinesStatsCalculator) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
 	result := map[object.ChangeEntry]LineStats{}
-	if deps[core.DependencyIsMerge].(bool) {
-		// we ignore merge commit diffs
-		// TODO(vmarkovtsev): handle them better
-		return map[string]interface{}{DependencyLineStats: result}, nil
-	}
 	treeDiff := deps[DependencyTreeChanges].(object.Changes)
 	cache := deps[DependencyBlobCache].(map[plumbing.Hash]*CachedBlob)
 	fileDiffs := deps[DependencyFileDiff].(map[string]FileDiffData)

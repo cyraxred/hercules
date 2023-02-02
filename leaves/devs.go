@@ -166,11 +166,6 @@ func (devs *DevsAnalysis) Consume(deps map[string]interface{}) (map[string]inter
 		devstick[author] = dd
 	}
 	dd.Commits++
-	if deps[core.DependencyIsMerge].(bool) {
-		// we ignore merge commit diffs
-		// TODO(vmarkovtsev): handle them
-		return nil, nil
-	}
 	langs := deps[items.DependencyLanguages].(map[plumbing.Hash]string)
 	lineStats := deps[items.DependencyLineStats].(map[object.ChangeEntry]items.LineStats)
 	for changeEntry, stats := range lineStats {
