@@ -239,8 +239,8 @@ func (analyser *BurndownAnalysis) updateFile(change LineHistoryChange) {
 	history.updateDelta(change.PrevTick, change.CurrTick, change.Delta)
 }
 
-func (analyser *BurndownAnalysis) updateFileDelete(_ LineHistoryChange) {
-	//delete(analyser.fileHistories, change.FileId)
+func (analyser *BurndownAnalysis) updateFileDelete(change LineHistoryChange) {
+	delete(analyser.fileHistories, change.FileId)
 }
 
 func (analyser *BurndownAnalysis) updateAuthor(change LineHistoryChange) {
