@@ -177,6 +177,13 @@ func (analyser *BurndownAnalysis) Fork(n int) []core.PipelineItem {
 	return core.ForkSamePipelineItem(analyser, n)
 }
 
+func (analyser *BurndownAnalysis) Merge(branches []core.PipelineItem) {
+	//for _, branch := range branches {
+	//	clone := branch.(*BurndownAnalysis)
+	//	for id, fileHistory := range clone.fileHistories
+	//}
+}
+
 type LineHistoryChange = linehistory.LineHistoryChange
 
 // Consume runs this PipelineItem on the next commits data.
@@ -192,7 +199,7 @@ func (analyser *BurndownAnalysis) Consume(deps map[string]interface{}) (map[stri
 	for _, change := range changes.Changes {
 		if change.IsDelete() {
 			if analyser.TrackFiles {
-				delete(analyser.fileHistories, change.FileId)
+				analyser.updateFileDelete(change)
 			}
 			continue
 		}
@@ -230,6 +237,10 @@ func (analyser *BurndownAnalysis) updateFile(change LineHistoryChange) {
 	}
 
 	history.updateDelta(change.PrevTick, change.CurrTick, change.Delta)
+}
+
+func (analyser *BurndownAnalysis) updateFileDelete(_ LineHistoryChange) {
+	//delete(analyser.fileHistories, change.FileId)
 }
 
 func (analyser *BurndownAnalysis) updateAuthor(change LineHistoryChange) {
@@ -272,33 +283,32 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 		if len(history) == 0 {
 			continue
 		}
-		mergedId, fileName, found := analyser.fileResolver.MergedWith(fileId)
-		if !found || mergedId != fileId {
-			continue
-		}
-
-		fileHistories[fileName], _ = analyser.groupSparseHistory(history, lastTick)
-
-		{
-			previousLine := 0
-			previousAuthor := identity.AuthorMissing
-			ownership := map[int]int{}
-			fileOwnership[fileName] = ownership
-
-			analyser.fileResolver.ScanFile(fileId, func(line, tick, author int) {
-				length := line - previousLine
-				if length > 0 {
-					ownership[previousAuthor] += length
-				}
-				previousLine = line
-				if author == identity.AuthorMissing || author >= analyser.PeopleNumber {
-					previousAuthor = -1
-				} else {
-					previousAuthor = author
-				}
-			})
+		if fileName := analyser.fileResolver.NameOf(fileId); fileName != "" {
+			fileHistories[fileName], _ = analyser.groupSparseHistory(history, lastTick)
 		}
 	}
+
+	analyser.fileResolver.ForEachFile(func(fileId linehistory.FileId, fileName string) {
+		previousLine := 0
+		previousAuthor := identity.AuthorMissing
+		ownership := map[int]int{}
+
+		if analyser.fileResolver.ScanFile(fileId, func(line, tick, author int) {
+			length := line - previousLine
+			if length > 0 {
+				ownership[previousAuthor] += length
+			}
+			previousLine = line
+			if author == identity.AuthorMissing || author >= analyser.PeopleNumber {
+				previousAuthor = -1
+			} else {
+				previousAuthor = author
+			}
+		}) {
+			fileOwnership[fileName] = ownership
+		}
+	})
+
 	peopleHistories := make([]burndown.DenseHistory, analyser.PeopleNumber)
 	for i, history := range analyser.peopleHistories {
 		if len(history) > 0 {

@@ -138,6 +138,17 @@ func (v FileIdResolver) MergedWith(id FileId) (FileId, string, bool) {
 	return 0, v.abandonedNameOf(id), false
 }
 
+func (v FileIdResolver) ForEachFile(callback func(id FileId, name string)) bool {
+	if v.analyser == nil {
+		return false
+	}
+
+	for name, file := range v.analyser.files {
+		callback(file.Id, name)
+	}
+	return true
+}
+
 func (v FileIdResolver) ScanFile(id FileId, callback func(line, tick, author int)) bool {
 	if v.analyser == nil {
 		return false
@@ -255,8 +266,8 @@ func (analyser *LineHistoryAnalyser) Initialize(repository *git.Repository) erro
 	analyser.files = map[string]*File{}
 	analyser.fileAllocator = rbtree.NewAllocator()
 	analyser.fileAllocator.HibernationThreshold = analyser.HibernationThreshold
-	analyser.mergedFiles = map[string]bool{}
 	analyser.mergedAuthor = identity.AuthorMissing
+	analyser.mergedFiles = map[string]bool{}
 	analyser.deletions = map[string]bool{}
 
 	analyser.tick = 0
@@ -354,8 +365,17 @@ func (analyser *LineHistoryAnalyser) inheritAbandonedNames() map[FileId]string {
 func (analyser *LineHistoryAnalyser) Fork(n int) []core.PipelineItem {
 	result := make([]core.PipelineItem, n)
 
+	//analyser.mergedAuthor = identity.AuthorMissing
+	//analyser.mergedFiles = map[string]bool{}
+	//analyser.deletions = map[string]bool{}
+
 	for i := range result {
 		clone := *analyser
+
+		//clone.mergedAuthor = identity.AuthorMissing
+		//clone.mergedFiles = map[string]bool{}
+		//clone.deletions = map[string]bool{}
+
 		clone.files = make(map[string]*File, len(analyser.files))
 		clone.fileNames = make(map[FileId]*string, len(analyser.fileNames))
 		clone.fileAbandonedNames = nil
@@ -370,11 +390,9 @@ func (analyser *LineHistoryAnalyser) Fork(n int) []core.PipelineItem {
 	}
 
 	for id, name := range analyser.fileNames {
-		switch file := analyser.files[*name]; {
-		case file == nil:
+		if file := analyser.files[*name]; file == nil {
 			analyser.addAbandonedName(id, *name)
-
-		case file.Id != id:
+		} else if file.Id != id {
 			for _, item := range result {
 				clone := item.(*LineHistoryAnalyser)
 				clone.fileNames[id] = clone.fileNames[file.Id]
@@ -399,8 +417,8 @@ func (analyser *LineHistoryAnalyser) Merge(branches []core.PipelineItem) {
 		clones[i+1] = branch.(*LineHistoryAnalyser)
 	}
 	mergeFlags := map[string]bool{}
-	for _, burn := range clones {
-		for fileName, val := range burn.mergedFiles {
+	for _, clone := range clones {
+		for fileName, val := range clone.mergedFiles {
 			// (*)
 			// there can be contradicting flags,
 			// e.g. item was renamed and a new item written on its place
@@ -411,51 +429,44 @@ func (analyser *LineHistoryAnalyser) Merge(branches []core.PipelineItem) {
 	for mergedName, val := range mergeFlags {
 		if !val {
 			for _, clone := range clones {
-				clone.files[mergedName].Delete()
-				delete(clone.files, mergedName)
+				clone.forgetFileName(mergedName).Delete()
 			}
 			continue
 		}
 
-		files := make([]*File, 0, len(clones))
-		for i, clone := range clones {
-			if file := clone.files[mergedName]; file != nil {
-				// file can be nil if it is considered binary in this branch
-				files = append(files, file)
-			} else if i == 0 {
-				panic("Merge file is missing here")
-			}
-		}
-		if len(files) == 0 {
-			// so we could be wrong in (*) and there is no such file eventually
-			// it could be also removed in the merge commit itself
-			continue
-		}
-
-		mergeTick := packPersonWithTick(analyser.mergedAuthor, analyser.tick)
-		files[0].Merge(mergeTick, files[1:]...)
-
-		for _, burn := range clones {
-			file := burn.files[mergedName]
-
-			var nameStorage *string
-			if file == nil {
-				n := ""
-				nameStorage = &n
-			} else {
-				nameStorage = burn.fileNames[file.Id]
-			}
-			*nameStorage = mergedName
-
-			for _, mergedFile := range files {
-				if file == nil || mergedFile.Id != file.Id {
-					burn.fileNames[mergedFile.Id] = nameStorage
+		mergeTarget := analyser.files[mergedName]
+		{
+			mergeFiles := make([]*File, 0, len(clones)-1)
+			for _, clone := range clones[1:] {
+				if file := clone.files[mergedName]; file != nil {
+					// file can be nil if it is considered binary in this branch
+					mergeFiles = append(mergeFiles, file)
 				}
 			}
+			if len(mergeFiles) == 0 {
+				// so we could be wrong in (*) and there is no such file eventually
+				// it could be also removed in the merge commit itself
+				continue
+			}
+			if mergeTarget == nil {
+				panic("Merge target is missing: " + mergedName) // TODO Merge target file is missing
+			}
 
-			if file != files[0] {
-				file.Delete()
-				burn.files[mergedName] = files[0].CloneDeepWithUpdaters(burn.fileAllocator, burn.updateChangeList)
+			mergeTick := packPersonWithTick(analyser.mergedAuthor, analyser.tick)
+			mergeTarget.Merge(mergeTick, mergeFiles...)
+		}
+
+		for _, clone := range clones[1:] {
+			if mergedFile := clone.files[mergedName]; mergedFile != nil {
+				if mergedFile.Id != mergeTarget.Id {
+					// analyser.addAbandonedName(mergedFile.Id, mergedName)
+					analyser.fileNames[mergedFile.Id] = analyser.fileNames[mergeTarget.Id]
+
+					clone.fileNames[mergeTarget.Id] = clone.fileNames[mergedFile.Id]
+				}
+
+				mergedFile.Delete()
+				clone.files[mergedName] = mergeTarget.CloneDeepWithUpdaters(clone.fileAllocator, clone.updateChangeList)
 			}
 		}
 	}
@@ -572,11 +583,13 @@ func (analyser *LineHistoryAnalyser) newFile(
 	return file, nil
 }
 
-func (analyser *LineHistoryAnalyser) forgetFileName(name string) {
+func (analyser *LineHistoryAnalyser) forgetFileName(name string) *File {
 	if file := analyser.files[name]; file != nil {
 		analyser.addAbandonedName(file.Id, name)
 		delete(analyser.files, name)
+		return file
 	}
+	return nil
 }
 
 func (analyser *LineHistoryAnalyser) handleInsertion(

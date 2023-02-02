@@ -41,7 +41,7 @@ type NoopMerger struct {
 }
 
 // Merge does nothing.
-func (merger *NoopMerger) Merge(branches []PipelineItem) {
+func (*NoopMerger) Merge([]PipelineItem) {
 	// no-op
 }
 
