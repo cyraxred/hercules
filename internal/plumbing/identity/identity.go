@@ -63,7 +63,7 @@ func (v Resolver) Count() int {
 	if v.identities == nil {
 		return 0
 	}
-	return len(v.identities.PeopleDict)
+	return len(v.identities.ReversedPeopleDict)
 }
 
 func (v Resolver) FriendlyNameOf(id core.AuthorId) string {
@@ -90,6 +90,10 @@ func (v Resolver) ForEachIdentity(callback func(core.AuthorId, string)) bool {
 		callback(core.AuthorId(id), name)
 	}
 	return true
+}
+
+func (v Resolver) CopyFriendlyNames() []string {
+	return append([]string(nil), v.identities.ReversedPeopleDict...)
 }
 
 // Name of this PipelineItem. Uniquely identifies the type, used for mapping keys, etc.
