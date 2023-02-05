@@ -26,11 +26,14 @@ func TestPipelineSerialize(t *testing.T) {
 	pipeline.Initialize(facts)
 	bdot, _ := ioutil.ReadFile(dotpath)
 	dot := string(bdot)
+	println()
+	println(dot)
+	println()
 	assert.Equal(t, `digraph Hercules {
   "6 BlobCache" -> "7 [blob_cache]"
   "9 FileDiff" -> "11 [file_diff]"
   "15 FileDiffRefiner" -> "16 LegacyBurndown"
-  "0 IdentityDetector" -> "3 [author]"
+  "0 PeopleDetector" -> "3 [author]"
   "8 RenameAnalysis" -> "9 FileDiff"
   "8 RenameAnalysis" -> "16 LegacyBurndown"
   "8 RenameAnalysis" -> "10 UAST"
@@ -69,7 +72,7 @@ func TestPipelineSerializeNoUast(t *testing.T) {
 	assert.Equal(t, `digraph Hercules {
   "6 BlobCache" -> "7 [blob_cache]"
   "9 FileDiff" -> "10 [file_diff]"
-  "0 IdentityDetector" -> "3 [author]"
+  "0 PeopleDetector" -> "3 [author]"
   "8 RenameAnalysis" -> "9 FileDiff"
   "8 RenameAnalysis" -> "11 LegacyBurndown"
   "1 TicksSinceStart" -> "4 [tick]"
