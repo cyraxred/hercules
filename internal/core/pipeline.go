@@ -382,19 +382,32 @@ func (pipeline *Pipeline) SetFeaturesFromFlags(registry ...*PipelineItemRegistry
 // DeployItem inserts a PipelineItem into the pipeline. It also recursively creates all of it's
 // dependencies (PipelineItem.Requires()). Returns the same item as specified in the arguments.
 func (pipeline *Pipeline) DeployItem(item PipelineItem) PipelineItem {
+	return pipeline.deployItem(item, false)
+}
+
+func (pipeline *Pipeline) DeployItemOnce(item PipelineItem) PipelineItem {
+	return pipeline.deployItem(item, true)
+}
+
+func (pipeline *Pipeline) deployItem(item PipelineItem, once bool) PipelineItem {
+	var queue []PipelineItem
+	queue = append(queue, item)
+	added := map[string]PipelineItem{}
+	for _, existingItem := range pipeline.items {
+		added[existingItem.Name()] = existingItem
+	}
+	if prevItem, present := added[item.Name()]; once && present {
+		return prevItem
+	}
+	added[item.Name()] = item
+
 	fpi, ok := item.(FeaturedPipelineItem)
 	if ok {
 		for _, f := range fpi.Features() {
 			pipeline.SetFeature(f)
 		}
 	}
-	var queue []PipelineItem
-	queue = append(queue, item)
-	added := map[string]PipelineItem{}
-	for _, item := range pipeline.items {
-		added[item.Name()] = item
-	}
-	added[item.Name()] = item
+
 	pipeline.AddItem(item)
 	for len(queue) > 0 {
 		head := queue[0]

@@ -179,7 +179,7 @@ func (analyser *BurndownAnalysis) Fork(n int) []core.PipelineItem {
 	return core.ForkSamePipelineItem(analyser, n)
 }
 
-func (analyser *BurndownAnalysis) Merge(branches []core.PipelineItem) {
+func (analyser *BurndownAnalysis) Merge([]core.PipelineItem) {
 	//for _, branch := range branches {
 	//	clone := branch.(*BurndownAnalysis)
 	//	for id, fileHistory := range clone.fileHistories
@@ -694,5 +694,5 @@ func (analyser *BurndownAnalysis) groupSparseHistory(
 }
 
 func init() {
-	core.Registry.Register(&BurndownAnalysis{})
+	core.Registry.RegisterPreferred(&BurndownAnalysis{}, true)
 }

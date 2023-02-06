@@ -273,24 +273,40 @@ targets can be added using the --plugin system.`,
 			return items[0]
 		}
 
-		for name, valPtr := range cmdlineDeployed {
-			if *valPtr {
-				switch summons := hercules.Registry.Summon(name); {
+		{
+			deployList := make([][]string, 0, len(cmdlineDeployed))
+			for name, valPtr := range cmdlineDeployed {
+				if *valPtr {
+					deployList = append(deployList, []string{name})
+				}
+			}
+
+			flags.Visit(func(flag *pflag.Flag) {
+				if names := activationByFlags[flag.Name]; len(names) > 0 {
+					deployList = append(deployList, names)
+				}
+			})
+
+			for _, names := range deployList {
+				switch summons := hercules.Registry.Summon(names...); {
 				case len(summons) == 0:
-					log.Fatalf("missing item: %s", name)
+					log.Fatalf("missing item(s): %v", names)
 				case len(summons) > 1:
-					log.Printf("ambigous item: %s", name)
-					summons = summons[:1]
+					if len(names) == 2 {
+						log.Printf("ambigous item: %v", names)
+					}
 					summons[0] = priorityFn(summons)
+					summons = summons[:1]
 					fallthrough
 				default:
-					item := pipeline.DeployItem(summons[0])
-					if !dryRun {
+					item := pipeline.DeployItemOnce(summons[0])
+					if !dryRun && item == summons[0] {
 						deployed = append(deployed, item.(hercules.LeafPipelineItem))
 					}
 				}
 			}
 		}
+
 		err = pipeline.InitializeExt(cmdlineFacts, priorityFn)
 		if err != nil {
 			log.Fatal(err)
@@ -346,7 +362,7 @@ func (v flagSorter) itemWeight(i int) int {
 }
 
 func sortItemsByFlagWeights(items []core.PipelineItem, flagSet *pflag.FlagSet) {
-	sort.Sort(flagSorter{items: items, flagSet: flagSet})
+	sort.Stable(flagSorter{items: items, flagSet: flagSet})
 }
 
 func weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet) int {
@@ -548,6 +564,7 @@ var versionCmd = &cobra.Command{
 
 var cmdlineFacts map[string]interface{}
 var cmdlineDeployed map[string]*bool
+var activationByFlags map[string][]string
 
 func init() {
 	loadPlugins()
@@ -574,7 +591,7 @@ func init() {
 		panic(err)
 	}
 	hercules.PathifyFlagValue(rootFlags.Lookup("ssh-identity"))
-	cmdlineFacts, cmdlineDeployed = hercules.Registry.AddFlags(rootFlags)
+	cmdlineFacts, cmdlineDeployed, activationByFlags = hercules.Registry.AddFlags(rootFlags)
 	rootCmd.SetUsageFunc(formatUsage)
 	rootCmd.AddCommand(versionCmd)
 	versionCmd.SetUsageFunc(versionCmd.UsageFunc())
