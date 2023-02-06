@@ -540,118 +540,123 @@ func (items sortablePipelineItems) Swap(i, j int) {
 func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriorityFunc) error {
 	graph := toposort.NewGraph()
 	sort.Sort(sortablePipelineItems(pipeline.items))
-	name2item := map[string]PipelineItem{}
+
+	name2item := make(map[string]PipelineItem, len(pipeline.items))
+	name2data := make(map[string]struct{})
+
+	{
+		itemUsages := make(map[string]int, len(pipeline.items))
+		for _, item := range pipeline.items {
+			name := item.Name()
+			index := itemUsages[name] + 1
+			itemUsages[name] = index
+			name = fmt.Sprintf("%s_%d", name, index)
+			name2item[name] = item
+
+			graph.AddNode(name)
+			for _, key := range item.Requires() {
+				key = "[" + key + "]"
+				name2data[key] = struct{}{}
+				graph.AddNode(key)
+				graph.AddEdge(key, name)
+			}
+
+			for _, key := range item.Provides() {
+				key = "[" + key + "]"
+				name2data[key] = struct{}{}
+				graph.AddNode(key)
+				graph.AddEdge(name, key)
+			}
+		}
+	}
+
 	ambiguousInputs := map[string][]string{}
-	itemUsages := map[string]int{}
-	for _, item := range pipeline.items {
-		itemUsages[item.Name()]++
-	}
-	counters := map[string]int{}
-	for _, item := range pipeline.items {
-		name := item.Name()
-		if itemUsages[name] > 1 {
-			index := counters[item.Name()] + 1
-			counters[item.Name()] = index
-			name = fmt.Sprintf("%s_%d", item.Name(), index)
+
+	for name := range name2data {
+		nParents, _ := graph.InputCount(name)
+		if nParents == 0 {
+			children := graph.FindChildren(name)
+			pipeline.l.Criticalf("Unsatisfied dependency: %s -> %s", name, children)
+			return errors.New("unsatisfied dependency")
 		}
-		graph.AddNode(name)
-		name2item[name] = item
-		for _, key := range item.Provides() {
-			key = "[" + key + "]"
-			graph.AddNode(key)
-			if graph.AddEdge(name, key) > 1 {
-				if ambiguousInputs[key] != nil {
-					fmt.Fprintln(os.Stderr, "Pipeline:")
-					for _, item2 := range pipeline.items {
-						if item2 == item {
-							fmt.Fprint(os.Stderr, "> ")
-						}
-						fmt.Fprint(os.Stderr, item2.Name(), " [")
-						for i, key2 := range item2.Provides() {
-							fmt.Fprint(os.Stderr, key2)
-							if i < len(item.Provides())-1 {
-								fmt.Fprint(os.Stderr, ", ")
-							}
-						}
-						fmt.Fprintln(os.Stderr, "]")
-					}
-					pipeline.l.Critical("Failed to resolve pipeline dependencies: ambiguous graph.")
-					return errors.New("ambiguous graph")
-				}
-				ambiguousInputs[key] = graph.FindParents(key)
-			}
+		if nParents > 1 {
+			ambiguousInputs[name] = graph.FindParents(name)
 		}
 	}
-	counters = map[string]int{}
-	for _, item := range pipeline.items {
-		name := item.Name()
-		if itemUsages[name] > 1 {
-			index := counters[item.Name()] + 1
-			counters[item.Name()] = index
-			name = fmt.Sprintf("%s_%d", item.Name(), index)
-		}
-		for _, key := range item.Requires() {
-			key = "[" + key + "]"
-			if graph.AddEdge(key, name) == 0 {
-				pipeline.l.Criticalf("Unsatisfied dependency: %s -> %s", key, item.Name())
-				return errors.New("unsatisfied dependency")
-			}
-		}
-	}
-	// Try to break the cycles in some known scenarios.
+
+	// Try to break cycles in some known scenarios.
 	if len(ambiguousInputs) > 0 {
-		var ambiguousKeys []string
+		var ambiguousDataKeys []string
 		for key := range ambiguousInputs {
-			ambiguousKeys = append(ambiguousKeys, key)
+			ambiguousDataKeys = append(ambiguousDataKeys, key)
 		}
-		sort.Strings(ambiguousKeys)
-		bfsorder := graph.BreadthSort()
-		bfsindex := map[string]int{}
-		for i, s := range bfsorder {
-			bfsindex[s] = i
-		}
-		for len(ambiguousKeys) > 0 {
-			key := ambiguousKeys[0]
-			ambiguousKeys = ambiguousKeys[1:]
-			pair := ambiguousInputs[key]
-			inheritor := pair[1]
-			if bfsindex[pair[1]] < bfsindex[pair[0]] {
-				inheritor = pair[0]
+		sort.Strings(ambiguousDataKeys)
+		bfsIndex := graph.BreadthSort()
+
+		for _, key := range ambiguousDataKeys {
+			ambInputs := ambiguousInputs[key]
+			replacingParents := map[string]string{}
+			toposort.SortByNodeIndex(ambInputs, bfsIndex)
+
+			for _, ambInput := range ambInputs {
+				graph.RemoveEdge(ambInput, key)
 			}
-			removed := graph.RemoveEdge(key, inheritor)
-			cycle := map[string]bool{}
-			for _, node := range graph.FindCycle(key) {
-				cycle[node] = true
-			}
-			if len(cycle) == 0 {
-				cycle[inheritor] = true
-			}
-			if removed {
-				graph.AddEdge(key, inheritor)
-			}
-			graph.RemoveEdge(inheritor, key)
-			graph.ReindexNode(inheritor)
-			// for all nodes key links to except those in cycle, put the link from inheritor
-			for _, node := range graph.FindChildren(key) {
-				if _, exists := cycle[node]; !exists {
-					graph.AddEdge(inheritor, node)
-					graph.RemoveEdge(key, node)
+
+			nextCycleNode := key
+			for i := len(ambInputs) - 1; i >= 0; i-- {
+				ambInput := ambInputs[i]
+				graph.AddEdge(ambInput, key)
+				cycle := graph.FindCycle(ambInput)
+
+				nextNode := ambInput
+				if len(cycle) == 0 {
+					if i != 0 {
+						panic("unexpected")
+					}
+					nextNode = key
+				} else if len(cycle) == 1 || cycle[1] != key {
+					panic("unexpected")
+				} else {
+					if len(cycle) > 2 {
+						nextNode = cycle[2]
+					}
+					graph.RemoveEdge(key, nextNode)
 				}
+
+				if nextCycleNode != key {
+					graph.RemoveEdge(ambInput, key)
+					graph.AddEdge(ambInput, nextCycleNode)
+					replacingParents[nextCycleNode] = ambInput
+				}
+
+				nextCycleNode = nextNode
 			}
-			graph.ReindexNode(key)
+
+			for _, child := range graph.FindChildren(key) {
+				cycle := graph.FindCycle(child)
+				if len(cycle) == 0 {
+					continue
+				} else if len(cycle) < 3 || cycle[len(cycle)-1] != key {
+					panic("unexpected")
+				}
+				loopingParent := cycle[len(cycle)-2]
+				replacingParent := replacingParents[loopingParent]
+				if replacingParent == "" {
+					panic("unexpected")
+				}
+				graph.RemoveEdge(key, child)
+				graph.AddEdge(replacingParent, child)
+			}
 		}
 	}
-	var graphCopy *toposort.Graph
-	if dumpPath != "" {
-		graphCopy = graph.Copy()
-	}
-	strplan, ok := graph.Toposort()
+	pipelinePlan, ok := graph.Toposort()
 	if !ok {
+		_, _ = fmt.Fprint(os.Stderr, graph.DebugDump())
 		pipeline.l.Critical("Failed to resolve pipeline dependencies: unable to topologically sort the items.")
 		return errors.New("topological sort failure")
 	}
-	pipeline.items = make([]PipelineItem, 0, len(pipeline.items))
-	for _, key := range strplan {
+	pipeline.items = pipeline.items[:0]
+	for _, key := range pipelinePlan {
 		if item, ok := name2item[key]; ok {
 			pipeline.items = append(pipeline.items, item)
 		}
@@ -659,7 +664,7 @@ func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriority
 	if dumpPath != "" {
 		// If there is a floating difference, uncomment this:
 		// fmt.Fprint(os.Stderr, graphCopy.DebugDump())
-		ioutil.WriteFile(dumpPath, []byte(graphCopy.Serialize(strplan)), 0666)
+		_ = ioutil.WriteFile(dumpPath, []byte(graph.Serialize(pipelinePlan)), 0666)
 		absPath, _ := filepath.Abs(dumpPath)
 		pipeline.l.Infof("Wrote the DAG to %s\n", absPath)
 	}
@@ -952,9 +957,6 @@ func LoadCommitsFromFile(path string, repository *git.Repository) ([]*object.Com
 	var commits []*object.Commit
 	for scanner.Scan() {
 		hash := plumbing.NewHash(scanner.Text())
-		if len(hash) != 20 {
-			return nil, errors.New("invalid commit hash " + scanner.Text())
-		}
 		commit, err := repository.CommitObject(hash)
 		if err != nil {
 			return nil, err
