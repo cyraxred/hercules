@@ -12,57 +12,52 @@ import (
 	"github.com/pkg/errors"
 )
 
-// PeopleDetector determines the author of a commit. Same person can commit under different
+// StoryDetector determines the author of a commit. Same person can commit under different
 // signatures, and we apply some heuristics to merge those together.
 // It is a PipelineItem.
-type PeopleDetector struct {
+type StoryDetector struct {
 	core.NoopMerger
 	// PeopleDict maps email || name  -> developer id
 	PeopleDict map[string]int
 	// ReversedPeopleDict maps developer id -> description
 	ReversedPeopleDict []string
-	// ExactSignatures chooses the matching algorithm: opportunistic email || name
-	// or exact email && name
+
 	ExactSignatures bool
 
 	l core.Logger
 }
 
 const (
-	// FactIdentityDetectorReversedPeopleDict is the name of the fact which is inserted in
-	// PeopleDetector.Configure(). It corresponds to PeopleDetector.ReversedPeopleDict -
+	// FactStoryDetectorStoryList is the name of the fact which is inserted in
+	// StoryDetector.Configure(). It corresponds to StoryDetector.ReversedPeopleDict -
 	// the mapping from the author indices to the main signature.
-	FactIdentityDetectorReversedPeopleDict = "IdentityDetector.ReversedPeopleDict"
-	// ConfigIdentityDetectorPeopleDictPath is the name of the configuration option
-	// (PeopleDetector.Configure()) which allows to set the external PeopleDict mapping from a file.
-	ConfigIdentityDetectorPeopleDictPath = "PeopleDetector.PeopleDictPath"
-	// ConfigIdentityDetectorExactSignatures is the name of the configuration option
-	// (PeopleDetector.Configure()) which changes the matching algorithm to exact signature (name + email)
-	// correspondence.
-	ConfigIdentityDetectorExactSignatures = "PeopleDetector.ExactSignatures"
+	FactStoryDetectorStoryList = "StoryDetector.StoryList"
+	// ConfigStoryDetectorStoryListPath is the name of the configuration option
+	// (StoryDetector.Configure()) which allows to set the external PeopleDict mapping from a file.
+	ConfigStoryDetectorStoryListPath = "StoryDetector.StoryListPath"
 )
 
-var _ core.IdentityResolver = peopleResolver{}
+var _ core.IdentityResolver = storyResolver{}
 
-type peopleResolver struct {
-	identities *PeopleDetector
+type storyResolver struct {
+	identities *StoryDetector
 }
 
-func (v peopleResolver) Count() int {
+func (v storyResolver) Count() int {
 	if v.identities == nil {
 		return 0
 	}
 	return len(v.identities.ReversedPeopleDict)
 }
 
-func (v peopleResolver) FriendlyNameOf(id core.AuthorId) string {
+func (v storyResolver) FriendlyNameOf(id core.AuthorId) string {
 	if id == core.AuthorMissing || id < 0 || v.identities == nil || int(id) >= len(v.identities.ReversedPeopleDict) {
 		return core.AuthorMissingName
 	}
 	return v.identities.ReversedPeopleDict[id]
 }
 
-func (v peopleResolver) FindIdOf(name string) core.AuthorId {
+func (v storyResolver) FindIdOf(name string) core.AuthorId {
 	if v.identities != nil {
 		if id, ok := v.identities.PeopleDict[name]; ok {
 			return core.AuthorId(id)
@@ -71,7 +66,7 @@ func (v peopleResolver) FindIdOf(name string) core.AuthorId {
 	return core.AuthorId(-1)
 }
 
-func (v peopleResolver) ForEachIdentity(callback func(core.AuthorId, string)) bool {
+func (v storyResolver) ForEachIdentity(callback func(core.AuthorId, string)) bool {
 	if v.identities == nil {
 		return false
 	}
@@ -81,49 +76,43 @@ func (v peopleResolver) ForEachIdentity(callback func(core.AuthorId, string)) bo
 	return true
 }
 
-func (v peopleResolver) CopyFriendlyNames() []string {
+func (v storyResolver) CopyFriendlyNames() []string {
 	return append([]string(nil), v.identities.ReversedPeopleDict...)
 }
 
 // Name of this PipelineItem. Uniquely identifies the type, used for mapping keys, etc.
-func (detector *PeopleDetector) Name() string {
-	return "PeopleDetector"
+func (detector *StoryDetector) Name() string {
+	return "StoryDetector"
 }
 
 // Provides returns the list of names of entities which are produced by this PipelineItem.
 // Each produced entity will be inserted into `deps` of dependent Consume()-s according
 // to this list. Also used by core.Registry to build the global map of providers.
-func (detector *PeopleDetector) Provides() []string {
+func (detector *StoryDetector) Provides() []string {
 	return []string{DependencyAuthor}
 }
 
 // Requires returns the list of names of entities which are needed by this PipelineItem.
 // Each requested entity will be inserted into `deps` of Consume(). In turn, those
 // entities are Provides() upstream.
-func (detector *PeopleDetector) Requires() []string {
+func (detector *StoryDetector) Requires() []string {
 	return []string{}
 }
 
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
-func (detector *PeopleDetector) ListConfigurationOptions() []core.ConfigurationOption {
+func (detector *StoryDetector) ListConfigurationOptions() []core.ConfigurationOption {
 	options := [...]core.ConfigurationOption{{
-		Name:        ConfigIdentityDetectorPeopleDictPath,
+		Name:        ConfigStoryDetectorStoryListPath,
 		Description: "Path to the file with developer -> name|email associations.",
-		Flag:        "people-dict",
+		Flag:        "story-dict",
 		Type:        core.PathConfigurationOption,
-		Default:     ""}, {
-		Name: ConfigIdentityDetectorExactSignatures,
-		Description: "Disable separate name/email matching. This will lead to considerbly more " +
-			"identities and should not be normally used.",
-		Flag:    "exact-signatures",
-		Type:    core.BoolConfigurationOption,
-		Default: false},
+		Default:     ""},
 	}
 	return options[:]
 }
 
 // Configure sets the properties previously published by ListConfigurationOptions().
-func (detector *PeopleDetector) Configure(facts map[string]interface{}) error {
+func (detector *StoryDetector) Configure(facts map[string]interface{}) error {
 	if l, exists := facts[core.ConfigLogger].(core.Logger); exists {
 		detector.l = l
 	} else {
@@ -131,15 +120,11 @@ func (detector *PeopleDetector) Configure(facts map[string]interface{}) error {
 	}
 
 	detector.PeopleDict = nil
-	if val, exists := facts[FactIdentityDetectorReversedPeopleDict].([]string); exists {
+	if val, exists := facts[FactStoryDetectorStoryList].([]string); exists {
 		detector.ReversedPeopleDict = val
 	}
 
-	if val, exists := facts[ConfigIdentityDetectorExactSignatures].(bool); exists {
-		detector.ExactSignatures = val
-	}
-
-	if peopleDictPath, ok := facts[ConfigIdentityDetectorPeopleDictPath].(string); ok && peopleDictPath != "" {
+	if peopleDictPath, ok := facts[ConfigStoryDetectorStoryListPath].(string); ok && peopleDictPath != "" {
 		err := detector.LoadPeopleDict(peopleDictPath)
 		if err != nil {
 			return errors.Errorf("failed to load %s: %v", peopleDictPath, err)
@@ -148,11 +133,10 @@ func (detector *PeopleDetector) Configure(facts map[string]interface{}) error {
 
 	if detector.ReversedPeopleDict == nil {
 		if _, exists := facts[core.ConfigPipelineCommits]; !exists {
-			panic("PeopleDetector needs a list of commits to initialize.")
+			panic("StoryDetector needs a list of commits to initialize.")
 		}
 		detector.GeneratePeopleDict(facts[core.ConfigPipelineCommits].([]*object.Commit))
 	}
-	facts[FactIdentityDetectorReversedPeopleDict] = detector.ReversedPeopleDict
 
 	if detector.PeopleDict == nil {
 		detector.PeopleDict = make(map[string]int, len(detector.ReversedPeopleDict))
@@ -161,18 +145,18 @@ func (detector *PeopleDetector) Configure(facts map[string]interface{}) error {
 		}
 	}
 
-	var resolver core.IdentityResolver = peopleResolver{detector}
+	var resolver core.IdentityResolver = storyResolver{detector}
 	facts[core.FactIdentityResolver] = resolver
 	return nil
 }
 
-func (*PeopleDetector) ConfigureUpstream(facts map[string]interface{}) error {
+func (*StoryDetector) ConfigureUpstream(facts map[string]interface{}) error {
 	return nil
 }
 
 // Initialize resets the temporary caches and prepares this PipelineItem for a series of Consume()
 // calls. The repository which is going to be analysed is supplied as an argument.
-func (detector *PeopleDetector) Initialize(repository *git.Repository) error {
+func (detector *StoryDetector) Initialize(repository *git.Repository) error {
 	detector.l = core.NewLogger()
 	return nil
 }
@@ -182,7 +166,7 @@ func (detector *PeopleDetector) Initialize(repository *git.Repository) error {
 // Additionally, DependencyCommit is always present there and represents the analysed *object.Commit.
 // This function returns the mapping with analysis results. The keys must be the same as
 // in Provides(). If there was an error, nil is returned.
-func (detector *PeopleDetector) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
+func (detector *StoryDetector) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
 	commit := deps[core.DependencyCommit].(*object.Commit)
 	var authorID int
 	var exists bool
@@ -202,14 +186,14 @@ func (detector *PeopleDetector) Consume(deps map[string]interface{}) (map[string
 }
 
 // Fork clones this PipelineItem.
-func (detector *PeopleDetector) Fork(n int) []core.PipelineItem {
+func (detector *StoryDetector) Fork(n int) []core.PipelineItem {
 	return core.ForkSamePipelineItem(detector, n)
 }
 
 // LoadPeopleDict loads author signatures from a text file.
 // The format is one signature per line, and the signature consists of several
 // keys separated by "|". The first key is the main one and used to reference all the rest.
-func (detector *PeopleDetector) LoadPeopleDict(path string) error {
+func (detector *StoryDetector) LoadPeopleDict(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -240,7 +224,7 @@ func (detector *PeopleDetector) LoadPeopleDict(path string) error {
 }
 
 // GeneratePeopleDict loads author signatures from the specified list of Git commits.
-func (detector *PeopleDetector) GeneratePeopleDict(commits []*object.Commit) {
+func (detector *StoryDetector) GeneratePeopleDict(commits []*object.Commit) {
 	dict := map[string]int{}
 	emails := map[int][]string{}
 	names := map[int][]string{}
@@ -351,5 +335,5 @@ func (detector *PeopleDetector) GeneratePeopleDict(commits []*object.Commit) {
 }
 
 func init() {
-	core.Registry.RegisterPreferred(&PeopleDetector{}, true)
+	//	core.Registry.Register(&StoryDetector{})
 }

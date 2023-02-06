@@ -21,6 +21,10 @@ type PipelineItemRegistry struct {
 
 // Register adds another PipelineItem to the registry.
 func (registry *PipelineItemRegistry) Register(example PipelineItem) {
+	registry.RegisterPreferred(example, false)
+}
+
+func (registry *PipelineItemRegistry) RegisterPreferred(example PipelineItem, preferred bool) {
 	t := reflect.TypeOf(example)
 	registry.registered[example.Name()] = t
 	if fpi, ok := example.(LeafPipelineItem); ok {
@@ -28,10 +32,12 @@ func (registry *PipelineItemRegistry) Register(example PipelineItem) {
 	}
 	for _, dep := range example.Provides() {
 		ts := registry.provided[dep]
-		if ts == nil {
-			ts = []reflect.Type{}
+		if preferred && len(ts) > 0 {
+			ts = append(ts, ts[0])
+			ts[0] = t
+		} else {
+			ts = append(ts, t)
 		}
-		ts = append(ts, t)
 		registry.provided[dep] = ts
 	}
 }
@@ -227,6 +233,7 @@ func (registry *PipelineItemRegistry) AddFlags(flagSet *pflag.FlagSet) (
 					panic(s)
 				}
 			}
+
 			var iface interface{}
 			getPtr := func() unsafe.Pointer {
 				return unsafe.Pointer(uintptr(unsafe.Pointer(&iface)) + unsafe.Sizeof(&iface))
@@ -260,7 +267,12 @@ func (registry *PipelineItemRegistry) AddFlags(flagSet *pflag.FlagSet) (
 				ptr := (**[]string)(getPtr())
 				*ptr = flagSet.StringSlice(opt.Flag, opt.Default.([]string), formatHelp(opt.Description))
 			}
+
 			flags[opt.Name] = iface
+			//flag := flagSet.Lookup(opt.Flag)
+			//if flag != nil && flag.Changed {
+			//	println(name, opt.Name)
+			//}
 		}
 		if fpi, ok := itemIface.(FeaturedPipelineItem); ok {
 			for _, f := range fpi.Features() {

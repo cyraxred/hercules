@@ -400,7 +400,8 @@ func (pipeline *Pipeline) DeployItem(item PipelineItem) PipelineItem {
 		head := queue[0]
 		queue = queue[1:]
 		for _, dep := range head.Requires() {
-			for _, sibling := range Registry.Summon(dep) {
+			summons := Registry.Summon(dep)
+			for _, sibling := range summons {
 				if _, exists := added[sibling.Name()]; !exists {
 					disabled := false
 					// If this item supports features, check them against the activated in pipeline.features
@@ -536,19 +537,19 @@ func (items sortablePipelineItems) Swap(i, j int) {
 	items[i], items[j] = items[j], items[i]
 }
 
-func (pipeline *Pipeline) resolve(dumpPath string) error {
+func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriorityFunc) error {
 	graph := toposort.NewGraph()
 	sort.Sort(sortablePipelineItems(pipeline.items))
 	name2item := map[string]PipelineItem{}
-	ambiguousMap := map[string][]string{}
-	nameUsages := map[string]int{}
+	ambiguousInputs := map[string][]string{}
+	itemUsages := map[string]int{}
 	for _, item := range pipeline.items {
-		nameUsages[item.Name()]++
+		itemUsages[item.Name()]++
 	}
 	counters := map[string]int{}
 	for _, item := range pipeline.items {
 		name := item.Name()
-		if nameUsages[name] > 1 {
+		if itemUsages[name] > 1 {
 			index := counters[item.Name()] + 1
 			counters[item.Name()] = index
 			name = fmt.Sprintf("%s_%d", item.Name(), index)
@@ -559,7 +560,7 @@ func (pipeline *Pipeline) resolve(dumpPath string) error {
 			key = "[" + key + "]"
 			graph.AddNode(key)
 			if graph.AddEdge(name, key) > 1 {
-				if ambiguousMap[key] != nil {
+				if ambiguousInputs[key] != nil {
 					fmt.Fprintln(os.Stderr, "Pipeline:")
 					for _, item2 := range pipeline.items {
 						if item2 == item {
@@ -577,14 +578,14 @@ func (pipeline *Pipeline) resolve(dumpPath string) error {
 					pipeline.l.Critical("Failed to resolve pipeline dependencies: ambiguous graph.")
 					return errors.New("ambiguous graph")
 				}
-				ambiguousMap[key] = graph.FindParents(key)
+				ambiguousInputs[key] = graph.FindParents(key)
 			}
 		}
 	}
 	counters = map[string]int{}
 	for _, item := range pipeline.items {
 		name := item.Name()
-		if nameUsages[name] > 1 {
+		if itemUsages[name] > 1 {
 			index := counters[item.Name()] + 1
 			counters[item.Name()] = index
 			name = fmt.Sprintf("%s_%d", item.Name(), index)
@@ -598,21 +599,21 @@ func (pipeline *Pipeline) resolve(dumpPath string) error {
 		}
 	}
 	// Try to break the cycles in some known scenarios.
-	if len(ambiguousMap) > 0 {
-		var ambiguous []string
-		for key := range ambiguousMap {
-			ambiguous = append(ambiguous, key)
+	if len(ambiguousInputs) > 0 {
+		var ambiguousKeys []string
+		for key := range ambiguousInputs {
+			ambiguousKeys = append(ambiguousKeys, key)
 		}
-		sort.Strings(ambiguous)
+		sort.Strings(ambiguousKeys)
 		bfsorder := graph.BreadthSort()
 		bfsindex := map[string]int{}
 		for i, s := range bfsorder {
 			bfsindex[s] = i
 		}
-		for len(ambiguous) > 0 {
-			key := ambiguous[0]
-			ambiguous = ambiguous[1:]
-			pair := ambiguousMap[key]
+		for len(ambiguousKeys) > 0 {
+			key := ambiguousKeys[0]
+			ambiguousKeys = ambiguousKeys[1:]
+			pair := ambiguousInputs[key]
 			inheritor := pair[1]
 			if bfsindex[pair[1]] < bfsindex[pair[0]] {
 				inheritor = pair[0]
@@ -669,6 +670,13 @@ func (pipeline *Pipeline) resolve(dumpPath string) error {
 // resolves the execution DAG, Configure()-s and Initialize()-s the items in it in the
 // topological dependency order. `facts` are passed inside Configure(). They are mutable.
 func (pipeline *Pipeline) Initialize(aFacts map[string]interface{}) error {
+	return pipeline.InitializeExt(aFacts, nil)
+}
+
+type DependencyPriorityFunc = func(items []PipelineItem) []PipelineItem
+
+func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
+	priorityFn DependencyPriorityFunc) error {
 	cleanReturn := false
 	defer func() {
 		if !cleanReturn {
@@ -709,7 +717,7 @@ func (pipeline *Pipeline) Initialize(aFacts map[string]interface{}) error {
 		pipeline.HibernationDistance = val
 	}
 	dumpPath, _ := facts[ConfigPipelineDAGPath].(string)
-	err := pipeline.resolve(dumpPath)
+	err := pipeline.resolve(dumpPath, priorityFn)
 	if err != nil {
 		return err
 	}

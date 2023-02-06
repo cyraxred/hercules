@@ -75,6 +75,11 @@ func (g *Graph) AddEdge(from, to string) int {
 	return ni
 }
 
+func (g *Graph) InputCount(name string) (int, bool) {
+	n, ok := g.inputs[name]
+	return n, ok
+}
+
 // ReindexNode updates the internal representation of the node after edge removals.
 func (g *Graph) ReindexNode(node string) {
 	children, ok := g.outputs[node]
