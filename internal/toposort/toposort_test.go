@@ -2,6 +2,7 @@ package toposort
 
 import (
 	"github.com/stretchr/testify/assert"
+	"sort"
 	"testing"
 )
 
@@ -160,9 +161,13 @@ func TestToposortFindChildren(t *testing.T) {
 	graph.AddEdge("5", "1")
 
 	children := graph.FindChildren("1")
+	sort.Strings(children)
+
 	expected := [...]string{"2"}
 	assert.Equal(t, expected[:], children)
 	children = graph.FindChildren("2")
+	sort.Strings(children)
+
 	assert.Len(t, children, 2)
 	checks := [2]bool{}
 	for _, p := range children {

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/cyraxred/hercules/internal/core"
-	uast_items "github.com/cyraxred/hercules/internal/plumbing/uast"
+	"github.com/cyraxred/hercules/internal/plumbing/uast"
 	"github.com/cyraxred/hercules/internal/test"
 	"github.com/cyraxred/hercules/leaves"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +15,7 @@ import (
 
 func TestPipelineSerialize(t *testing.T) {
 	pipeline := core.NewPipeline(test.Repository)
-	pipeline.SetFeature(uast_items.FeatureUast)
+	pipeline.SetFeature(uast.FeatureUast)
 	pipeline.DeployItem(&leaves.LegacyBurndownAnalysis{})
 	facts := map[string]interface{}{}
 	facts[core.ConfigPipelineDryRun] = true
@@ -31,15 +31,15 @@ func TestPipelineSerialize(t *testing.T) {
 	println()
 	assert.Equal(t, `digraph Hercules {
   "5 BlobCache_1" -> "6 [blob_cache]"
-  "14 FileDiffRefiner_1" -> "15 [file_diff]"
   "9 FileDiff_1" -> "14 FileDiffRefiner_1"
+  "14 FileDiffRefiner_1" -> "15 [file_diff]"
   "0 PeopleDetector_1" -> "3 [author]"
   "7 RenameAnalysis_1" -> "8 [changes]"
   "1 TicksSinceStart_1" -> "4 [tick]"
   "2 TreeDiff_1" -> "5 BlobCache_1"
   "2 TreeDiff_1" -> "7 RenameAnalysis_1"
-  "12 UASTChanges_1" -> "13 [changed_uasts]"
   "10 UAST_1" -> "11 [uasts]"
+  "12 UASTChanges_1" -> "13 [changed_uasts]"
   "3 [author]" -> "16 LegacyBurndown_1"
   "6 [blob_cache]" -> "9 FileDiff_1"
   "6 [blob_cache]" -> "16 LegacyBurndown_1"
@@ -48,8 +48,8 @@ func TestPipelineSerialize(t *testing.T) {
   "13 [changed_uasts]" -> "14 FileDiffRefiner_1"
   "8 [changes]" -> "9 FileDiff_1"
   "8 [changes]" -> "16 LegacyBurndown_1"
-  "8 [changes]" -> "12 UASTChanges_1"
   "8 [changes]" -> "10 UAST_1"
+  "8 [changes]" -> "12 UASTChanges_1"
   "15 [file_diff]" -> "16 LegacyBurndown_1"
   "4 [tick]" -> "16 LegacyBurndown_1"
   "11 [uasts]" -> "12 UASTChanges_1"

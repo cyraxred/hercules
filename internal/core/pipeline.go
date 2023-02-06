@@ -537,21 +537,54 @@ func (items sortablePipelineItems) Swap(i, j int) {
 	items[i], items[j] = items[j], items[i]
 }
 
+type indexedStringSorter struct {
+	values []string
+	index  map[string]int
+}
+
+func (v indexedStringSorter) Len() int {
+	return len(v.values)
+}
+
+func (v indexedStringSorter) Less(i, j int) bool {
+	idx0, ok0 := v.index[v.values[i]]
+	idx1, ok1 := v.index[v.values[j]]
+	switch {
+	case ok0 && ok1:
+		return idx0 < idx1
+	case !(ok0 || ok1):
+		return v.values[i] < v.values[j]
+	default:
+		return ok0
+	}
+}
+
+func (v indexedStringSorter) Swap(i, j int) {
+	v.values[j], v.values[i] = v.values[i], v.values[j]
+}
+
 func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriorityFunc) error {
-	graph := toposort.NewGraph()
 	sort.Sort(sortablePipelineItems(pipeline.items))
 
 	name2item := make(map[string]PipelineItem, len(pipeline.items))
+	name2index := make(map[string]int, len(pipeline.items))
 	name2data := make(map[string]struct{})
+
+	sortStrings := func(values []string) {
+		sort.Sort(indexedStringSorter{values: values, index: name2index})
+	}
+
+	graph := toposort.NewGraphWithSorter(sortStrings)
 
 	{
 		itemUsages := make(map[string]int, len(pipeline.items))
-		for _, item := range pipeline.items {
+		for i, item := range pipeline.items {
 			name := item.Name()
 			index := itemUsages[name] + 1
 			itemUsages[name] = index
 			name = fmt.Sprintf("%s_%d", name, index)
 			name2item[name] = item
+			name2index[name] = i
 
 			graph.AddNode(name)
 			for _, key := range item.Requires() {
@@ -576,6 +609,7 @@ func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriority
 		nParents, _ := graph.InputCount(name)
 		if nParents == 0 {
 			children := graph.FindChildren(name)
+			sort.Strings(children)
 			pipeline.l.Criticalf("Unsatisfied dependency: %s -> %s", name, children)
 			return errors.New("unsatisfied dependency")
 		}
@@ -584,24 +618,42 @@ func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriority
 		}
 	}
 
-	// Try to break cycles in some known scenarios.
+	// break cycles - unwinds sequential processing of same facts
 	if len(ambiguousInputs) > 0 {
 		var ambiguousDataKeys []string
 		for key := range ambiguousInputs {
 			ambiguousDataKeys = append(ambiguousDataKeys, key)
 		}
-		sort.Strings(ambiguousDataKeys)
+		sortStrings(ambiguousDataKeys)
 		bfsIndex := graph.BreadthSort()
 
 		for _, key := range ambiguousDataKeys {
 			ambInputs := ambiguousInputs[key]
-			replacingParents := map[string]string{}
 			toposort.SortByNodeIndex(ambInputs, bfsIndex)
+
+			{
+				last := len(ambiguousDataKeys)
+				lastLevel := 0
+				for i := last - 1; i >= -1; i-- {
+					level := -1
+					if i >= 0 {
+						level = bfsIndex[ambInputs[i]].Level
+					}
+					if level != lastLevel {
+						if s := ambInputs[last:]; len(s) > 1 {
+							pipeline.resolveAlternatives(s, name2item, priorityFn)
+						}
+						lastLevel = level
+						last = i
+					}
+				}
+			}
 
 			for _, ambInput := range ambInputs {
 				graph.RemoveEdge(ambInput, key)
 			}
 
+			replacingParents := map[string]string{}
 			nextCycleNode := key
 			for i := len(ambInputs) - 1; i >= 0; i-- {
 				ambInput := ambInputs[i]
@@ -632,7 +684,10 @@ func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriority
 				nextCycleNode = nextNode
 			}
 
-			for _, child := range graph.FindChildren(key) {
+			children := graph.FindChildren(key)
+			sortStrings(children)
+
+			for _, child := range children {
 				cycle := graph.FindCycle(child)
 				if len(cycle) == 0 {
 					continue
@@ -937,6 +992,10 @@ func (pipeline *Pipeline) Run(commits []*object.Commit) (map[LeafPipelineItem]in
 	}
 	cleanReturn = true
 	return result, nil
+}
+
+func (pipeline *Pipeline) resolveAlternatives(nodes []string, items map[string]PipelineItem, fn DependencyPriorityFunc) {
+
 }
 
 // LoadCommitsFromFile reads the file by the specified FS path and generates the sequence of commits

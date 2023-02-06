@@ -15,6 +15,7 @@ type Graph struct {
 	outputs map[string]map[string]struct{}
 	// How many parents each node has.
 	inputs map[string]int
+	sorter func([]string)
 }
 
 // NewGraph initializes a new Graph.
@@ -22,6 +23,20 @@ func NewGraph() *Graph {
 	return &Graph{
 		inputs:  map[string]int{},
 		outputs: map[string]map[string]struct{}{},
+	}
+}
+
+func NewGraphWithSorter(sorter func([]string)) *Graph {
+	g := NewGraph()
+	g.sorter = sorter
+	return g
+}
+
+func (g *Graph) Sort(values []string) {
+	if g.sorter == nil {
+		sort.Strings(values)
+	} else {
+		g.sorter(values)
 	}
 }
 
@@ -86,7 +101,7 @@ func (g *Graph) Toposort() ([]string, bool) {
 			queue = append(queue, n)
 		}
 	}
-	sort.Strings(queue)
+	g.Sort(queue)
 
 	for len(queue) > 0 {
 		n := queue[0]
@@ -110,7 +125,7 @@ func (g *Graph) Toposort() ([]string, bool) {
 			queue = append(queue, k)
 		}
 
-		sort.Strings(queue[queueLen:])
+		g.Sort(queue[queueLen:])
 	}
 
 	return result, len(result) == len(g.inputs)
@@ -226,7 +241,6 @@ func (g *Graph) FindChildren(from string) (result []string) {
 	for child := range g.outputs[from] {
 		result = append(result, child)
 	}
-	sort.Strings(result)
 	return result
 }
 
@@ -242,13 +256,13 @@ func (g *Graph) Serialize(sorted []string) string {
 	for nodeFrom := range g.outputs {
 		nodesFrom = append(nodesFrom, nodeFrom)
 	}
-	sort.Strings(nodesFrom)
+	g.Sort(nodesFrom)
 	for _, nodeFrom := range nodesFrom {
 		var links []string
 		for nodeTo := range g.outputs[nodeFrom] {
 			links = append(links, nodeTo)
 		}
-		sort.Strings(links)
+		g.Sort(links)
 		for _, nodeTo := range links {
 			buffer.WriteString(fmt.Sprintf("  \"%d %s\" -> \"%d %s\"\n",
 				node2index[nodeFrom], nodeFrom, node2index[nodeTo], nodeTo))
@@ -266,7 +280,7 @@ func (g *Graph) DebugDump() string {
 			S = append(S, n)
 		}
 	}
-	sort.Strings(S)
+	g.Sort(S)
 	var buffer bytes.Buffer
 	buffer.WriteString(strings.Join(S, " ") + "\n")
 	keys := []string(nil)
@@ -279,7 +293,7 @@ func (g *Graph) DebugDump() string {
 		keys = append(keys, key)
 		vals[key] = val2
 	}
-	sort.Strings(keys)
+	g.Sort(keys)
 	for _, key := range keys {
 		buffer.WriteString(fmt.Sprintf("%s %d = ", key, g.inputs[key]))
 		outs := vals[key]
