@@ -263,12 +263,14 @@ targets can be added using the --plugin system.`,
 		dryRun, _ := cmdlineFacts[hercules.ConfigPipelineDryRun].(bool)
 		var deployed []hercules.LeafPipelineItem
 
-		var priorityFn = func(items []core.PipelineItem) []core.PipelineItem {
+		var priorityFn = func(items []core.PipelineItem) core.PipelineItem {
+			if len(items) == 0 {
+				return nil
+			}
 			if len(items) > 1 {
 				sortItemsByFlagWeights(items, flags)
-				items = items[:1]
 			}
-			return items
+			return items[0]
 		}
 
 		for name, valPtr := range cmdlineDeployed {
@@ -278,7 +280,8 @@ targets can be added using the --plugin system.`,
 					log.Fatalf("missing item: %s", name)
 				case len(summons) > 1:
 					log.Printf("ambigous item: %s", name)
-					summons = priorityFn(summons)
+					summons = summons[:1]
+					summons[0] = priorityFn(summons)
 					fallthrough
 				default:
 					item := pipeline.DeployItem(summons[0])
@@ -288,7 +291,7 @@ targets can be added using the --plugin system.`,
 				}
 			}
 		}
-		err = pipeline.Initialize(cmdlineFacts)
+		err = pipeline.InitializeExt(cmdlineFacts, priorityFn)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -347,7 +350,7 @@ func sortItemsByFlagWeights(items []core.PipelineItem, flagSet *pflag.FlagSet) {
 }
 
 func weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet) int {
-	w := 0
+	w := -len(item.Provides()) * 100 // excessive provides are not needed
 	for _, opt := range item.ListConfigurationOptions() {
 		if flagSet.Changed(opt.Flag) {
 			w++

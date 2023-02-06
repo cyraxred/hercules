@@ -14,8 +14,8 @@ type Graph struct {
 	// Outgoing connections for every node.
 	outputs map[string]map[string]struct{}
 	// How many parents each node has.
-	inputs map[string]int
-	sorter func([]string)
+	inputs    map[string]int
+	sortIndex map[string]int
 }
 
 // NewGraph initializes a new Graph.
@@ -26,17 +26,43 @@ func NewGraph() *Graph {
 	}
 }
 
-func NewGraphWithSorter(sorter func([]string)) *Graph {
+func NewGraphWithInsertionOrder() *Graph {
 	g := NewGraph()
-	g.sorter = sorter
+	g.sortIndex = map[string]int{}
 	return g
 }
 
+type indexedStringSorter struct {
+	values []string
+	index  map[string]int
+}
+
+func (v indexedStringSorter) Len() int {
+	return len(v.values)
+}
+
+func (v indexedStringSorter) Less(i, j int) bool {
+	idx0, ok0 := v.index[v.values[i]]
+	idx1, ok1 := v.index[v.values[j]]
+	switch {
+	case ok0 && ok1:
+		return idx0 < idx1
+	case !(ok0 || ok1):
+		return v.values[i] < v.values[j]
+	default:
+		return ok0
+	}
+}
+
+func (v indexedStringSorter) Swap(i, j int) {
+	v.values[j], v.values[i] = v.values[i], v.values[j]
+}
+
 func (g *Graph) Sort(values []string) {
-	if g.sorter == nil {
+	if g.sortIndex == nil {
 		sort.Strings(values)
 	} else {
-		g.sorter(values)
+		sort.Sort(indexedStringSorter{values: values, index: g.sortIndex})
 	}
 }
 
@@ -47,6 +73,9 @@ func (g *Graph) AddNode(name string) bool {
 	}
 	g.outputs[name] = map[string]struct{}{}
 	g.inputs[name] = 0
+	if g.sortIndex != nil {
+		g.sortIndex[name] = len(g.sortIndex)
+	}
 	return true
 }
 
@@ -157,8 +186,9 @@ func SortByNodeIndex(nodes []string, positions map[string]NodePosition) {
 	sort.Sort(nodePosSorter{nodes: nodes, positions: positions})
 }
 
-// BreadthSort sorts the nodes in the graph in BFS order.
+// BreadthSort sorts the nodes in the graph in BFS order. Does NOT consider node ordering
 func (g *Graph) BreadthSort() map[string]NodePosition {
+	// TODO improve sorting to consider node ordering
 	S := make([]string, 0, len(g.outputs))
 
 	result := map[string]NodePosition{}
@@ -233,6 +263,7 @@ func (g *Graph) FindParents(to string) (result []string) {
 			result = append(result, node)
 		}
 	}
+	g.Sort(result)
 	return result
 }
 
@@ -241,6 +272,7 @@ func (g *Graph) FindChildren(from string) (result []string) {
 	for child := range g.outputs[from] {
 		result = append(result, child)
 	}
+	g.Sort(result)
 	return result
 }
 
@@ -304,4 +336,21 @@ func (g *Graph) DebugDump() string {
 
 func (g *Graph) HasChildren(name string) bool {
 	return len(g.outputs[name]) > 0
+}
+
+func (g *Graph) RemoveNode(name string) bool {
+	if _, ok := g.outputs[name]; !ok {
+		return false
+	}
+	for child := range g.outputs[name] {
+		g.inputs[child]--
+	}
+	for _, children := range g.outputs {
+		delete(children, name)
+	}
+	delete(g.inputs, name)
+	delete(g.outputs, name)
+	delete(g.sortIndex, name)
+
+	return true
 }
