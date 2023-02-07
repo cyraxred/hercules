@@ -180,7 +180,7 @@ func (detector *StoryDetector) Consume(deps map[string]interface{}) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{DependencyAuthor: author}, nil
+	return map[string]interface{}{DependencyAuthor: int(author)}, nil
 }
 
 func (detector *StoryDetector) putAuthorId(nextMerge *object.Commit) (core.AuthorId, error) {

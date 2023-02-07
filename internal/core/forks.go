@@ -91,7 +91,7 @@ const (
 // planPrintFunc is used to print the execution plan in prepareRunPlan().
 var planPrintFunc = func(args ...interface{}) {
 	//	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, args...)
+	_, _ = fmt.Fprintln(os.Stderr, args...)
 }
 
 type runAction struct {
@@ -180,8 +180,7 @@ func prepareRunPlan(commits []*object.Commit, hibernationDistance int, traceback
 	plan = generatePlan(orderNodes, hashes, mergedDag, dag, mergedSeq)
 	plan = collectGarbage(plan)
 	if traceback {
-		knownMerges := tracebackMerges(plan)
-		mergeHashCount = len(knownMerges)
+		mergeHashCount = tracebackMerges(plan)
 	}
 	if hibernationDistance > 0 {
 		plan = insertHibernateBoot(plan, hibernationDistance)
@@ -798,15 +797,18 @@ func insertHibernateBoot(plan []runAction, hibernationDistance int) []runAction 
 	return newPlan
 }
 
-func tracebackMerges(plan []runAction) (knownMerges map[plumbing.Hash]int) {
+func tracebackMerges(plan []runAction) int {
 	lastMerges := map[int]*object.Commit{}
-	knownMerges = map[plumbing.Hash]int{}
+	uniqueMerges := 0
 
 	for i := len(plan) - 1; i >= 0; i-- {
-		step := plan[i]
+		step := &plan[i]
 		switch step.Action {
 		case runActionMerge:
-			knownMerges[step.Commit.Hash] = len(knownMerges) + 1
+			if step.Commit == nil {
+				break
+			}
+			uniqueMerges++
 			for _, n := range step.Items {
 				lastMerges[n] = step.Commit
 			}
@@ -825,5 +827,5 @@ func tracebackMerges(plan []runAction) (knownMerges map[plumbing.Hash]int) {
 		}
 	}
 
-	return
+	return uniqueMerges
 }

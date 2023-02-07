@@ -268,7 +268,7 @@ targets can be added using the --plugin system.`,
 				return nil
 			}
 			if len(items) > 1 {
-				sortItemsByFlagWeights(items, flags)
+				sort.Stable(&flagSorter{items: items, flagSet: flags, featureSet: pipeline})
 			}
 			return items[0]
 		}
@@ -340,23 +340,23 @@ type flagSorter struct {
 	cache []int
 }
 
-func (v flagSorter) Len() int {
+func (v *flagSorter) Len() int {
 	return len(v.items)
 }
 
-func (v flagSorter) Less(i, j int) bool {
+func (v *flagSorter) Less(i, j int) bool {
 	if v.cache == nil {
 		v.cache = make([]int, len(v.items))
 	}
 	return v.itemWeight(i) > v.itemWeight(j)
 }
 
-func (v flagSorter) Swap(i, j int) {
+func (v *flagSorter) Swap(i, j int) {
 	v.cache[i], v.cache[j] = v.cache[j], v.cache[i]
 	v.items[i], v.items[j] = v.items[j], v.items[i]
 }
 
-func (v flagSorter) itemWeight(i int) int {
+func (v *flagSorter) itemWeight(i int) int {
 	if w := v.cache[i]; w != 0 {
 		return w
 	}
@@ -365,7 +365,7 @@ func (v flagSorter) itemWeight(i int) int {
 	return w
 }
 
-func (v flagSorter) weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet) int {
+func (v *flagSorter) weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet) int {
 	const (
 		weightProvide   = -1 // excessive provides are not welcome
 		weightParamFlag = 100
@@ -386,10 +386,6 @@ func (v flagSorter) weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet
 		}
 	}
 	return w
-}
-
-func sortItemsByFlagWeights(items []core.PipelineItem, flagSet *pflag.FlagSet) {
-	sort.Stable(flagSorter{items: items, flagSet: flagSet})
 }
 
 func printResults(

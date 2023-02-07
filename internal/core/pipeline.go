@@ -810,7 +810,10 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 			var prepared preparedRun
 			prepared.commitCount = len(commits)
 			prepared.plan, prepared.mergeHashCount = prepareRunPlan(commits, pipeline.HibernationDistance, mergeTracks)
-			facts[FactMergeHashCount] = prepared.mergeHashCount
+			if mergeTracks {
+				facts[FactMergeHashCount] = prepared.mergeHashCount
+			}
+			pipeline.preparedRun = &prepared
 		} else {
 			return fmt.Errorf("commits are not available")
 		}
