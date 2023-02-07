@@ -796,13 +796,6 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 		}
 	}
 
-	for _, item := range pipeline.items {
-		if err := item.ConfigureUpstream(facts); err != nil {
-			cleanReturn = true
-			return errors.Wrapf(err, "%s failed to pre-configure", item.Name())
-		}
-	}
-
 	mergeTracks, _ := pipeline.GetFeature(FeatureMergeTracks)
 
 	if preparePlan {
@@ -825,6 +818,14 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 		if err := item.Configure(facts); err != nil {
 			cleanReturn = true
 			return errors.Wrapf(err, "%s failed to configure", item.Name())
+		}
+	}
+
+	for i := len(pipeline.items) - 1; i >= 0; i-- {
+		item := pipeline.items[i]
+		if err := item.ConfigureUpstream(facts); err != nil {
+			cleanReturn = true
+			return errors.Wrapf(err, "%s failed to configure upstream", item.Name())
 		}
 	}
 
