@@ -268,7 +268,7 @@ targets can be added using the --plugin system.`,
 				return nil
 			}
 			if len(items) > 1 {
-				sortItemsByFlagWeights(items, flags)
+				sort.Stable(&flagSorter{items: items, flagSet: flags, featureSet: pipeline})
 			}
 			return items[0]
 		}
@@ -307,11 +307,12 @@ targets can be added using the --plugin system.`,
 			}
 		}
 
-		err = pipeline.InitializeExt(cmdlineFacts, priorityFn)
+		err = pipeline.InitializeExt(cmdlineFacts, priorityFn, true)
 		if err != nil {
 			log.Fatal(err)
 		}
-		results, err := pipeline.Run(commits)
+
+		results, err := pipeline.RunPreparedPlan()
 		if err != nil {
 			log.Fatalf("failed to run the pipeline: %v", err)
 		}
@@ -331,45 +332,57 @@ targets can be added using the --plugin system.`,
 }
 
 type flagSorter struct {
-	items   []core.PipelineItem
-	flagSet *pflag.FlagSet
-	cache   []int
+	items      []core.PipelineItem
+	flagSet    *pflag.FlagSet
+	featureSet interface {
+		GetFeature(string) (bool, bool)
+	}
+	cache []int
 }
 
-func (v flagSorter) Len() int {
+func (v *flagSorter) Len() int {
 	return len(v.items)
 }
 
-func (v flagSorter) Less(i, j int) bool {
+func (v *flagSorter) Less(i, j int) bool {
 	if v.cache == nil {
 		v.cache = make([]int, len(v.items))
 	}
 	return v.itemWeight(i) > v.itemWeight(j)
 }
 
-func (v flagSorter) Swap(i, j int) {
+func (v *flagSorter) Swap(i, j int) {
 	v.cache[i], v.cache[j] = v.cache[j], v.cache[i]
 	v.items[i], v.items[j] = v.items[j], v.items[i]
 }
 
-func (v flagSorter) itemWeight(i int) int {
+func (v *flagSorter) itemWeight(i int) int {
 	if w := v.cache[i]; w != 0 {
 		return w
 	}
-	w := weightFlagsOf(v.items[i], v.flagSet)
+	w := v.weightFlagsOf(v.items[i], v.flagSet)
 	v.cache[i] = w + 1
 	return w
 }
 
-func sortItemsByFlagWeights(items []core.PipelineItem, flagSet *pflag.FlagSet) {
-	sort.Stable(flagSorter{items: items, flagSet: flagSet})
-}
+func (v *flagSorter) weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet) int {
+	const (
+		weightProvide   = -1 // excessive provides are not welcome
+		weightParamFlag = 100
+		weightFeature   = 100
+	)
 
-func weightFlagsOf(item core.PipelineItem, flagSet *pflag.FlagSet) int {
-	w := -len(item.Provides()) * 100 // excessive provides are not needed
+	w := weightProvide * len(item.Provides())
 	for _, opt := range item.ListConfigurationOptions() {
 		if flagSet.Changed(opt.Flag) {
-			w++
+			w += weightParamFlag
+		}
+	}
+	if featured, ok := item.(core.FeaturedPipelineItem); v.featureSet != nil && ok {
+		for _, feat := range featured.Features() {
+			if ok, _ := v.featureSet.GetFeature(feat); ok {
+				w += weightFeature
+			}
 		}
 	}
 	return w

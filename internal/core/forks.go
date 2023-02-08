@@ -91,13 +91,14 @@ const (
 // planPrintFunc is used to print the execution plan in prepareRunPlan().
 var planPrintFunc = func(args ...interface{}) {
 	//	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, args...)
+	_, _ = fmt.Fprintln(os.Stderr, args...)
 }
 
 type runAction struct {
-	Action int
-	Commit *object.Commit
-	Items  []int
+	Action    int
+	Commit    *object.Commit
+	NextMerge *object.Commit
+	Items     []int
 }
 
 func (ra runAction) String() string {
@@ -160,7 +161,8 @@ func getMasterBranch(branches map[int][]PipelineItem) []PipelineItem {
 }
 
 // prepareRunPlan schedules the actions for Pipeline.Run().
-func prepareRunPlan(commits []*object.Commit, hibernationDistance int) []runAction {
+func prepareRunPlan(commits []*object.Commit, hibernationDistance int, traceback bool,
+) (plan []runAction, mergeHashCount int) {
 	hashes, dag := buildDag(commits)
 	leaveRootComponent(hashes, dag)
 	mergedDag, mergedSeq := mergeDag(hashes, dag)
@@ -175,12 +177,16 @@ func prepareRunPlan(commits []*object.Commit, hibernationDistance int) []runActi
 		}
 	}
 	fmt.Printf("}\n")*/
-	plan := generatePlan(orderNodes, hashes, mergedDag, dag, mergedSeq)
+	plan = generatePlan(orderNodes, hashes, mergedDag, dag, mergedSeq)
 	plan = collectGarbage(plan)
+	if traceback {
+		mergeHashCount = tracebackMerges(plan)
+	}
 	if hibernationDistance > 0 {
 		plan = insertHibernateBoot(plan, hibernationDistance)
 	}
-	return plan
+
+	return
 }
 
 // printAction prints the specified action to stderr.
@@ -789,4 +795,37 @@ func insertHibernateBoot(plan []runAction, hibernationDistance int) []runAction 
 		}
 	}
 	return newPlan
+}
+
+func tracebackMerges(plan []runAction) int {
+	lastMerges := map[int]*object.Commit{}
+	uniqueMerges := 0
+
+	for i := len(plan) - 1; i >= 0; i-- {
+		step := &plan[i]
+		switch step.Action {
+		case runActionMerge:
+			if step.Commit == nil {
+				break
+			}
+			uniqueMerges++
+			for _, n := range step.Items {
+				lastMerges[n] = step.Commit
+			}
+		case runActionEmerge:
+			for _, n := range step.Items {
+				delete(lastMerges, n)
+			}
+		case runActionFork:
+			for _, n := range step.Items[1:] {
+				delete(lastMerges, n)
+			}
+		case runActionCommit:
+			step.NextMerge = lastMerges[step.Items[0]]
+		default:
+			continue
+		}
+	}
+
+	return uniqueMerges
 }
