@@ -25,8 +25,9 @@ type IdentityResolver interface {
 	MaxCount() int
 	Count() int
 	FriendlyNameOf(id AuthorId) string
+	PrivateNameOf(id AuthorId) string
 	ForEachIdentity(callback func(AuthorId, string)) bool
-	CopyFriendlyNames() []string
+	CopyNames(privateNames bool) []string
 }
 
 var _ IdentityResolver = identityResolver{}
@@ -72,6 +73,10 @@ func (v identityResolver) Count() int {
 	return len(v.toNames)
 }
 
+func (v identityResolver) PrivateNameOf(id AuthorId) string {
+	return v.FriendlyNameOf(id)
+}
+
 func (v identityResolver) FriendlyNameOf(id AuthorId) string {
 	if id == AuthorMissing || id < 0 || int(id) >= len(v.toNames) {
 		return AuthorMissingName
@@ -93,7 +98,7 @@ func (v identityResolver) ForEachIdentity(callback func(AuthorId, string)) bool 
 	return true
 }
 
-func (v identityResolver) CopyFriendlyNames() []string {
+func (v identityResolver) CopyNames(bool) []string {
 	return append([]string(nil), v.toNames...)
 }
 
@@ -105,14 +110,14 @@ type LineHistoryChange struct {
 }
 
 func (v LineHistoryChange) IsDelete() bool {
-	return v.CurrAuthor == AuthorMissing && v.Delta == math.MinInt
+	return v.PrevAuthor == AuthorMissing && v.Delta == math.MinInt
 }
 
-func NewLineHistoryDeletion(id FileId, tick TickNumber) LineHistoryChange {
+func NewLineHistoryDeletion(id FileId, author AuthorId, tick TickNumber) LineHistoryChange {
 	return LineHistoryChange{
 		FileId:     id,
 		CurrTick:   tick,
-		CurrAuthor: AuthorMissing,
+		CurrAuthor: author,
 		PrevTick:   tick,
 		PrevAuthor: AuthorMissing,
 		Delta:      math.MinInt,

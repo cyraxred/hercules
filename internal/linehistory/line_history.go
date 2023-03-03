@@ -350,7 +350,7 @@ func (analyser *LineHistoryAnalyser) Fork(n int) []core.PipelineItem {
 			clone.files[key] = file.CloneShallowWithUpdaters(clone.fileAllocator, clone.updateChangeList)
 			clone.fileNames[file.Id] = key
 		}
-		clone.changes = append(make([]core.LineHistoryChange, 0, cap(analyser.changes)), analyser.changes...)
+		clone.changes = nil
 
 		result[i] = &clone
 	}
@@ -392,7 +392,6 @@ func (analyser *LineHistoryAnalyser) Merge(items []core.PipelineItem) {
 			}
 		}
 	}
-
 }
 
 // Hibernate compresses the bound RBTree memory with the files.
@@ -477,14 +476,30 @@ func (analyser *LineHistoryAnalyser) updateChangeList(f *File, currentTime, prev
 		analyser.l.Errorf("insertion must have the same author (%d, %d)", prevAuthor, newAuthor)
 		return
 	}
-	analyser.changes = append(analyser.changes, core.LineHistoryChange{
+
+	change := core.LineHistoryChange{
 		FileId:     f.Id,
 		CurrTick:   curTick,
 		CurrAuthor: newAuthor,
 		PrevTick:   prevTick,
 		PrevAuthor: prevAuthor,
-		Delta:      delta,
-	})
+	}
+
+	if len(analyser.changes) > 0 {
+		last := &analyser.changes[len(analyser.changes)-1]
+		if (delta <= 0 && last.Delta < 0) || (delta >= 0 && last.Delta > 0) {
+			change.Delta = last.Delta
+
+			if change == *last {
+				last.Delta += delta
+				return
+			}
+
+		}
+	}
+
+	change.Delta = delta
+	analyser.changes = append(analyser.changes, change)
 }
 
 func (analyser *LineHistoryAnalyser) newFile(
@@ -556,7 +571,7 @@ func (analyser *LineHistoryAnalyser) handleDeletion(
 	file.Update(packPersonWithTick(author, analyser.tick), 0, 0, lines)
 	file.Delete()
 
-	analyser.changes = append(analyser.changes, core.NewLineHistoryDeletion(file.Id, analyser.tick))
+	analyser.changes = append(analyser.changes, core.NewLineHistoryDeletion(file.Id, author, analyser.tick))
 	analyser.forgetFileName(name)
 	return nil
 }

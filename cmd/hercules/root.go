@@ -323,10 +323,10 @@ targets can be added using the --plugin system.`,
 				_, _ = fmt.Fprint(os.Stderr, "writing...\r")
 			}
 		}
-		if !protobuf {
-			printResults(uri, deployed, results)
-		} else {
+		if protobuf {
 			protobufResults(uri, deployed, results)
+		} else {
+			printResults(uri, deployed, results)
 		}
 	},
 }
