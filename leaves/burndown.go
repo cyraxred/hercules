@@ -168,7 +168,7 @@ func (analyser *BurndownAnalysis) Initialize(repository *git.Repository) error {
 	if analyser.peopleResolver == nil {
 		analyser.peopleResolver = core.NewIdentityResolver(nil, nil)
 	}
-	peopleCount := analyser.peopleResolver.Count()
+	peopleCount := analyser.peopleResolver.MaxCount()
 	analyser.peopleHistories = make([]sparseHistory, peopleCount)
 	analyser.matrix = make([]map[core.AuthorId]int64, peopleCount)
 
@@ -198,7 +198,7 @@ func (analyser *BurndownAnalysis) Consume(deps map[string]interface{}) (map[stri
 		analyser.primaryResolver = changes.Resolver
 	}
 	analyser.fileResolver = changes.Resolver
-	peopleCount := analyser.peopleResolver.Count()
+	peopleCount := analyser.peopleResolver.MaxCount()
 
 	for _, change := range changes.Changes {
 		if change.IsDelete() {

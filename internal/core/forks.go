@@ -810,6 +810,9 @@ func tracebackMerges(plan []runAction) int {
 			}
 			uniqueMerges++
 			for _, n := range step.Items {
+				if lastMerges[n] != nil && step.Items[0] > n {
+					continue
+				}
 				lastMerges[n] = step.Commit
 			}
 		case runActionEmerge:

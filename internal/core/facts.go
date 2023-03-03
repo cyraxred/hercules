@@ -22,6 +22,7 @@ const (
 )
 
 type IdentityResolver interface {
+	MaxCount() int
 	Count() int
 	FriendlyNameOf(id AuthorId) string
 	ForEachIdentity(callback func(AuthorId, string)) bool
@@ -61,6 +62,10 @@ func NewIdentityResolver(names []string, toIds map[string]int) IdentityResolver 
 type identityResolver struct {
 	toIds   map[string]int
 	toNames []string
+}
+
+func (v identityResolver) MaxCount() int {
+	return len(v.toNames)
 }
 
 func (v identityResolver) Count() int {

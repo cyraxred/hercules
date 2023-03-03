@@ -47,11 +47,18 @@ type storyResolver struct {
 	identities *StoryDetector
 }
 
-func (v storyResolver) Count() int {
+func (v storyResolver) MaxCount() int {
 	if v.identities == nil {
 		return 0
 	}
 	return v.identities.mergeNameCount
+}
+
+func (v storyResolver) Count() int {
+	if v.identities == nil {
+		return 0
+	}
+	return len(v.identities.MergeNames)
 }
 
 func (v storyResolver) FriendlyNameOf(id core.AuthorId) string {
@@ -72,6 +79,9 @@ func (v storyResolver) ForEachIdentity(callback func(core.AuthorId, string)) boo
 }
 
 func (v storyResolver) CopyFriendlyNames() []string {
+	if v.identities == nil {
+		return nil
+	}
 	return append([]string(nil), v.identities.MergeNames...)
 }
 
@@ -155,13 +165,13 @@ func splitMergeDict(dict map[plumbing.Hash]string) (hashDict map[plumbing.Hash]i
 	return
 }
 
-func (*StoryDetector) ConfigureUpstream(facts map[string]interface{}) error {
+func (*StoryDetector) ConfigureUpstream(map[string]interface{}) error {
 	return nil
 }
 
 // Initialize resets the temporary caches and prepares this PipelineItem for a series of Consume()
 // calls. The repository which is going to be analysed is supplied as an argument.
-func (detector *StoryDetector) Initialize(repository *git.Repository) error {
+func (detector *StoryDetector) Initialize(*git.Repository) error {
 	detector.l = core.NewLogger()
 	return nil
 }
