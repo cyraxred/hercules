@@ -48,6 +48,13 @@ type peopleResolver struct {
 	identities *PeopleDetector
 }
 
+func (v peopleResolver) MaxCount() int {
+	if v.identities == nil {
+		return 0
+	}
+	return len(v.identities.ReversedPeopleDict)
+}
+
 func (v peopleResolver) Count() int {
 	if v.identities == nil {
 		return 0
@@ -166,13 +173,13 @@ func (detector *PeopleDetector) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
-func (*PeopleDetector) ConfigureUpstream(facts map[string]interface{}) error {
+func (*PeopleDetector) ConfigureUpstream(map[string]interface{}) error {
 	return nil
 }
 
 // Initialize resets the temporary caches and prepares this PipelineItem for a series of Consume()
 // calls. The repository which is going to be analysed is supplied as an argument.
-func (detector *PeopleDetector) Initialize(repository *git.Repository) error {
+func (detector *PeopleDetector) Initialize(*git.Repository) error {
 	detector.l = core.NewLogger()
 	return nil
 }
@@ -214,7 +221,7 @@ func (detector *PeopleDetector) LoadPeopleDict(path string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	scanner := bufio.NewScanner(file)
 	dict := make(map[string]int)
 	var reverseDict []string

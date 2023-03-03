@@ -83,6 +83,7 @@ func TestBurndownConfigure(t *testing.T) {
 	assert.Equal(t, bd.TrackFiles, true)
 	assert.Equal(t, bd.tickSize, 24*time.Hour)
 	assert.Equal(t, bd.peopleResolver.Count(), len(people))
+	assert.Equal(t, bd.peopleResolver.MaxCount(), len(people))
 
 	facts[ConfigBurndownTrackPeople] = false
 	assert.Nil(t, bd.Configure(facts))

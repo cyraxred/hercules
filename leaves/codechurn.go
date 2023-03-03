@@ -159,7 +159,7 @@ func (analyser *CodeChurnAnalysis) Initialize(repository *git.Repository) error 
 	if analyser.peopleResolver == nil {
 		analyser.peopleResolver = core.NewIdentityResolver(nil, nil)
 	}
-	peopleCount := analyser.peopleResolver.Count()
+	peopleCount := analyser.peopleResolver.MaxCount()
 
 	analyser.codeChurns = make([]personChurnStats, peopleCount)
 	analyser.churnDeltas = map[churnDeltaKey]churnDelta{}
@@ -180,7 +180,7 @@ func (analyser *CodeChurnAnalysis) Consume(deps map[string]interface{}) (map[str
 
 	changes := deps[linehistory.DependencyLineHistory].(core.LineHistoryChanges)
 	analyser.fileResolver = changes.Resolver
-	peopleCount := analyser.peopleResolver.Count()
+	peopleCount := analyser.peopleResolver.MaxCount()
 
 	for _, change := range changes.Changes {
 		if change.IsDelete() {
