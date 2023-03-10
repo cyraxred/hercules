@@ -28,7 +28,7 @@ func fixturePeopleDetector() *PeopleDetector {
 		PeopleDict:         peopleDict,
 		ReversedPeopleDict: reversePeopleDict,
 	}
-	id.Initialize(test.Repository)
+	_ = id.Initialize(test.Repository)
 	return &id
 }
 
@@ -39,9 +39,10 @@ func TestPeopleDetectorMeta(t *testing.T) {
 	assert.Equal(t, len(id.Provides()), 1)
 	assert.Equal(t, id.Provides()[0], DependencyAuthor)
 	opts := id.ListConfigurationOptions()
-	assert.Len(t, opts, 2)
+	assert.Len(t, opts, 3)
 	assert.Equal(t, opts[0].Name, ConfigIdentityDetectorPeopleDictPath)
 	assert.Equal(t, opts[1].Name, ConfigIdentityDetectorExactSignatures)
+	assert.Equal(t, opts[2].Name, ConfigIdentityDetectorAnonymity)
 	logger := core.NewLogger()
 	assert.NoError(t, id.Configure(map[string]interface{}{
 		core.ConfigLogger: logger,
@@ -62,7 +63,7 @@ func TestPeopleDetectorConfigure(t *testing.T) {
 
 	tmpf, err := ioutil.TempFile("", "hercules-test-")
 	assert.Nil(t, err)
-	defer os.Remove(tmpf.Name())
+	defer func() { _ = os.Remove(tmpf.Name()) }()
 	_, err = tmpf.WriteString("Egor|egor@sourced.tech\nVadim|vadim@sourced.tech")
 	assert.Nil(t, err)
 	assert.Nil(t, tmpf.Close())
@@ -120,7 +121,7 @@ func TestPeopleDetectorRegistration(t *testing.T) {
 
 func TestPeopleDetectorConfigureEmpty(t *testing.T) {
 	id := PeopleDetector{}
-	assert.Panics(t, func() { id.Configure(map[string]interface{}{}) })
+	assert.Panics(t, func() { _ = id.Configure(map[string]interface{}{}) })
 }
 
 func TestPeopleDetectorConsume(t *testing.T) {
@@ -354,7 +355,7 @@ func (strr fakeEncodedObjectStorer) SetEncodedObject(plumbing.EncodedObject) (pl
 	return plumbing.NewHash("0000000000000000000000000000000000000000"), nil
 }
 
-func (strr fakeEncodedObjectStorer) EncodedObject(objType plumbing.ObjectType, hash plumbing.Hash) (plumbing.EncodedObject, error) {
+func (strr fakeEncodedObjectStorer) EncodedObject(objType plumbing.ObjectType, _ plumbing.Hash) (plumbing.EncodedObject, error) {
 	if objType == plumbing.TreeObject {
 		return fakeTreeEncodedObject{Name: strr.Name}, nil
 	} else if objType == plumbing.BlobObject {

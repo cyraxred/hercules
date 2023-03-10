@@ -69,9 +69,12 @@ func loadSSHIdentity(sshIdentity string) (*ssh.PublicKeys, error) {
 	return ssh.NewPublicKeysFromFile("git", actual, "")
 }
 
-func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentity string) *git.Repository {
-	var repository *git.Repository
+var regexUri = regexp.MustCompile("^[A-Za-z]\\w*@[A-Za-z0-9][\\w.]*:")
+
+func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentity string,
+) (repository *git.Repository, repoFeature string) {
 	var err error
+	repoFeature = core.FeatureGitCommits
 
 	if uri == "-" && cachePath == "" {
 		repository, err = git.Init(memory.NewStorage(), memfs.New())
@@ -79,7 +82,8 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 		if _, err = w.Commit("Initial", &git.CommitOptions{AllowEmptyCommits: true}); err != nil {
 			log.Panicf("failed to create a virtual repo: %v", err)
 		}
-	} else if strings.Contains(uri, "://") || regexp.MustCompile("^[A-Za-z]\\w*@[A-Za-z0-9][\\w.]*:").MatchString(uri) {
+		repoFeature = core.FeatureGitStub
+	} else if strings.Contains(uri, "://") || regexUri.MatchString(uri) {
 		var backend storage.Storer
 		if cachePath != "" {
 			backend = filesystem.NewStorage(osfs.New(cachePath), cache.NewObjectLRUDefault())
@@ -128,7 +132,7 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 	if err != nil {
 		log.Panicf("failed to open %s: %v", uri, err)
 	}
-	return repository
+	return
 }
 
 type arrayPluginFlags map[string]bool
@@ -224,10 +228,13 @@ targets can be added using the --plugin system.`,
 		if len(args) == 2 {
 			cachePath = args[1]
 		}
-		repository := loadRepository(uri, cachePath, disableStatus, sshIdentity)
+		repository, repoFeature := loadRepository(uri, cachePath, disableStatus, sshIdentity)
 
 		// core logic
 		pipeline := hercules.NewPipeline(repository)
+		if repoFeature != "" {
+			pipeline.SetFeature(repoFeature)
+		}
 		pipeline.SetFeaturesFromFlags()
 		var bar *progress.ProgressBar
 		if !disableStatus {
@@ -251,22 +258,24 @@ targets can be added using the --plugin system.`,
 			}
 		}
 
-		var commits []*object.Commit
-		var err error
-		if commitsFile == "" {
-			if !head {
-				_, _ = fmt.Fprint(os.Stderr, "git log...\r")
-				commits, err = pipeline.Commits(firstParent)
+		if repoFeature == core.FeatureGitCommits {
+			var commits []*object.Commit
+			var err error
+			if commitsFile == "" {
+				if !head {
+					_, _ = fmt.Fprint(os.Stderr, "git log...\r")
+					commits, err = pipeline.Commits(firstParent)
+				} else {
+					commits, err = pipeline.HeadCommit()
+				}
 			} else {
-				commits, err = pipeline.HeadCommit()
+				commits, err = hercules.LoadCommitsFromFile(commitsFile, repository)
 			}
-		} else {
-			commits, err = hercules.LoadCommitsFromFile(commitsFile, repository)
+			if err != nil {
+				log.Fatalf("failed to list the commits: %v", err)
+			}
+			cmdlineFacts[hercules.ConfigPipelineCommits] = commits
 		}
-		if err != nil {
-			log.Fatalf("failed to list the commits: %v", err)
-		}
-		cmdlineFacts[hercules.ConfigPipelineCommits] = commits
 
 		var priorityFn = func(items []core.PipelineItem) core.PipelineItem {
 			if len(items) == 0 {
@@ -278,11 +287,10 @@ targets can be added using the --plugin system.`,
 			return items[0]
 		}
 
-		dryRun, _ := cmdlineFacts[hercules.ConfigPipelineDryRun].(bool)
-		deployed := deployItemsToPipeline(pipeline, flags, dryRun, priorityFn)
+		pipeline.DryRun, _ = cmdlineFacts[hercules.ConfigPipelineDryRun].(bool)
+		deployedLeafs := deployItemsToPipeline(pipeline, flags, priorityFn)
 
-		err = pipeline.InitializeExt(cmdlineFacts, priorityFn, true)
-		if err != nil {
+		if err := pipeline.InitializeExt(cmdlineFacts, priorityFn, true); err != nil {
 			log.Fatal(err)
 		}
 
@@ -298,14 +306,14 @@ targets can be added using the --plugin system.`,
 			}
 		}
 		if protobuf {
-			protobufResults(uri, deployed, results)
+			protobufResults(uri, deployedLeafs, results)
 		} else {
-			printResults(uri, deployed, results)
+			printResults(uri, deployedLeafs, results)
 		}
 	},
 }
 
-func deployItemsToPipeline(pipeline *core.Pipeline, flags *pflag.FlagSet, dryRun bool,
+func deployItemsToPipeline(pipeline *core.Pipeline, flags *pflag.FlagSet,
 	priorityFn func(items []core.PipelineItem) core.PipelineItem,
 ) (deployed []hercules.LeafPipelineItem) {
 	deployList := make([][]string, 0, len(cmdlineDeployed))
@@ -334,7 +342,7 @@ func deployItemsToPipeline(pipeline *core.Pipeline, flags *pflag.FlagSet, dryRun
 			fallthrough
 		default:
 			item := pipeline.DeployItemOnce(summons[0])
-			if !dryRun && item == summons[0] {
+			if !pipeline.DryRun && item == summons[0] {
 				deployed = append(deployed, item.(hercules.LeafPipelineItem))
 			}
 		}

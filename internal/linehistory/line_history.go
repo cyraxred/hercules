@@ -175,6 +175,10 @@ func (analyser *LineHistoryAnalyser) Requires() []string {
 		items.DependencyTick, identity.DependencyAuthor}
 }
 
+func (*LineHistoryAnalyser) Features() []string {
+	return []string{core.FeatureGitCommits}
+}
+
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (analyser *LineHistoryAnalyser) ListConfigurationOptions() []core.ConfigurationOption {
 	options := [...]core.ConfigurationOption{{

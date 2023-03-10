@@ -84,6 +84,10 @@ func (treediff *TreeDiff) Requires() []string {
 	return []string{}
 }
 
+func (*TreeDiff) Features() []string {
+	return []string{core.FeatureGitCommits}
+}
+
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (treediff *TreeDiff) ListConfigurationOptions() []core.ConfigurationOption {
 	options := [...]core.ConfigurationOption{{
@@ -145,7 +149,7 @@ func (treediff *TreeDiff) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
-func (*TreeDiff) ConfigureUpstream(facts map[string]interface{}) error {
+func (*TreeDiff) ConfigureUpstream(map[string]interface{}) error {
 	return nil
 }
 

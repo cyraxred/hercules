@@ -8,6 +8,7 @@ import (
 	"github.com/cyraxred/hercules/internal/plumbing/identity"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"gopkg.in/yaml.v2"
 	"os"
 	"regexp"
@@ -158,6 +159,10 @@ func (analyser *LineHistoryLoader) Requires() []string {
 	return []string{}
 }
 
+func (*LineHistoryLoader) Features() []string {
+	return []string{core.FeatureGitStub}
+}
+
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (analyser *LineHistoryLoader) ListConfigurationOptions() []core.ConfigurationOption {
 	return []core.ConfigurationOption{{
@@ -184,6 +189,8 @@ func (analyser *LineHistoryLoader) Configure(facts map[string]interface{}) error
 
 	facts[core.FactLineHistoryResolver] = loadedFileIdResolver{analyser}
 	facts[core.FactIdentityResolver] = authorResolver{analyser}
+
+	facts[core.ConfigPipelineCommits] = analyser.buildCommits()
 
 	return nil
 }
@@ -298,6 +305,26 @@ func (analyser *LineHistoryLoader) loadChangesFromYaml(decoder *yaml.Decoder) er
 	}
 
 	return nil
+}
+
+func (analyser *LineHistoryLoader) buildCommits() (result []*object.Commit) {
+	result = make([]*object.Commit, 0, len(analyser.commits))
+
+	var parentHash []plumbing.Hash
+	for _, commit := range analyser.commits {
+		result = append(result, &object.Commit{
+			Hash:         commit.Hash,
+			Author:       object.Signature{},
+			Committer:    object.Signature{},
+			PGPSignature: "",
+			Message:      "",
+			TreeHash:     plumbing.Hash{},
+			ParentHashes: parentHash,
+		})
+		parentHash = []plumbing.Hash{commit.Hash}
+	}
+
+	return
 }
 
 func init() {

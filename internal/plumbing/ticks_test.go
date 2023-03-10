@@ -19,8 +19,8 @@ func fixtureTicksSinceStart(config ...map[string]interface{}) *TicksSinceStart {
 	if len(config) != 1 {
 		config = []map[string]interface{}{{}}
 	}
-	tss.Configure(config[0])
-	tss.Initialize(test.Repository)
+	_ = tss.Configure(config[0])
+	_ = tss.Initialize(test.Repository)
 	return &tss
 }
 
@@ -43,7 +43,7 @@ func TestTicksSinceStartRegistration(t *testing.T) {
 	assert.Len(t, summoned, 1)
 	assert.Equal(t, summoned[0].Name(), "TicksSinceStart")
 	summoned = core.Registry.Summon((&TicksSinceStart{}).Provides()[0])
-	assert.Len(t, summoned, 1)
+	assert.Len(t, summoned, 2)
 	assert.Equal(t, summoned[0].Name(), "TicksSinceStart")
 }
 

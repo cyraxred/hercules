@@ -181,7 +181,7 @@ func (detector *StoryDetector) Initialize(*git.Repository) error {
 }
 
 func (detector *StoryDetector) Features() []string {
-	return []string{core.FeatureMergeTracks}
+	return []string{core.FeatureMergeTracks, core.FeatureGitCommits}
 }
 
 // Consume runs this PipelineItem on the next commit data.

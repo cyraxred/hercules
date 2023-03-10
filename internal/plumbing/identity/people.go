@@ -135,6 +135,10 @@ func (detector *PeopleDetector) Requires() []string {
 	return []string{}
 }
 
+func (detector *PeopleDetector) Features() []string {
+	return []string{core.FeatureGitCommits}
+}
+
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (detector *PeopleDetector) ListConfigurationOptions() []core.ConfigurationOption {
 	return []core.ConfigurationOption{{
