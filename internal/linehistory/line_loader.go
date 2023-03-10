@@ -1,25 +1,45 @@
 package linehistory
 
 import (
+	"bufio"
+	"fmt"
 	"github.com/cyraxred/hercules/internal/core"
 	items "github.com/cyraxred/hercules/internal/plumbing"
 	"github.com/cyraxred/hercules/internal/plumbing/identity"
-	"github.com/cyraxred/hercules/internal/rbtree"
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"gopkg.in/yaml.v2"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
 )
 
 // LineHistoryLoader allows to gather per-line history and statistics for a Git repository.
 // It is a PipelineItem.
 type LineHistoryLoader struct {
-	fileNames map[FileId]string
+	files   map[FileId]fileInfo
+	authors []string
+	commits []commitInfo
 
-	// files is the mapping <file path> -> *File.
-	files map[string]*File
-
-	// fileAllocator is the allocator for RBTree-s in `files`.
-	fileAllocator *rbtree.Allocator
+	nextCommit int
 
 	l core.Logger
+}
+
+type fileInfo struct {
+	Name string
+}
+
+type commitInfo struct {
+	Hash    plumbing.Hash
+	Tick    core.TickNumber
+	Author  core.AuthorId
+	Changes []core.LineHistoryChange
+}
+
+func (v fileInfo) ForEach(func(line int, value int)) {
+	panic("not implemented")
 }
 
 var _ core.FileIdResolver = loadedFileIdResolver{}
@@ -33,14 +53,7 @@ func (v loadedFileIdResolver) NameOf(id FileId) string {
 		return ""
 	}
 
-	if n, ok := v.analyser.fileNames[id]; ok {
-		return n
-	}
-	return v.abandonedNameOf(id)
-}
-
-func (v loadedFileIdResolver) abandonedNameOf(id FileId) string {
-	return ""
+	return v.analyser.files[id].Name
 }
 
 func (v loadedFileIdResolver) MergedWith(id FileId) (FileId, string, bool) {
@@ -48,13 +61,10 @@ func (v loadedFileIdResolver) MergedWith(id FileId) (FileId, string, bool) {
 		return 0, "", false
 	}
 
-	switch f, n := v.analyser.findFileAndName(id); {
-	case f != nil:
-		return f.Id, n, true
-	case n != "":
-		return 0, n, false
+	if f, ok := v.analyser.files[id]; ok {
+		return id, f.Name, true
 	}
-	return 0, v.abandonedNameOf(id), false
+	return 0, "", false
 }
 
 func (v loadedFileIdResolver) ForEachFile(callback func(id FileId, name string)) bool {
@@ -62,8 +72,8 @@ func (v loadedFileIdResolver) ForEachFile(callback func(id FileId, name string))
 		return false
 	}
 
-	for name, file := range v.analyser.files {
-		callback(file.Id, name)
+	for id, file := range v.analyser.files {
+		callback(id, file.Name)
 	}
 	return true
 }
@@ -73,8 +83,8 @@ func (v loadedFileIdResolver) ScanFile(id FileId, callback func(line int, tick c
 		return false
 	}
 
-	file, _ := v.analyser.findFileAndName(id)
-	if file == nil {
+	file, ok := v.analyser.files[id]
+	if !ok {
 		return false
 	}
 	file.ForEach(func(line, value int) {
@@ -84,12 +94,60 @@ func (v loadedFileIdResolver) ScanFile(id FileId, callback func(line int, tick c
 	return true
 }
 
+var _ core.IdentityResolver = authorResolver{}
+
+type authorResolver struct {
+	identities *LineHistoryLoader
+}
+
+func (v authorResolver) MaxCount() int {
+	if v.identities == nil {
+		return 0
+	}
+	return len(v.identities.authors)
+}
+
+func (v authorResolver) Count() int {
+	if v.identities == nil {
+		return 0
+	}
+	return len(v.identities.authors)
+}
+
+func (v authorResolver) PrivateNameOf(id core.AuthorId) string {
+	return v.FriendlyNameOf(id)
+}
+
+func (v authorResolver) FriendlyNameOf(id core.AuthorId) string {
+	if id == core.AuthorMissing || id < 0 || v.identities == nil || int(id) >= len(v.identities.authors) {
+		return core.AuthorMissingName
+	}
+	return v.identities.authors[id]
+}
+
+func (v authorResolver) ForEachIdentity(callback func(core.AuthorId, string)) bool {
+	if v.identities == nil {
+		return false
+	}
+	for id, name := range v.identities.authors {
+		callback(core.AuthorId(id), name)
+	}
+	return true
+}
+
+func (v authorResolver) CopyNames(bool) []string {
+	if v.identities == nil {
+		return nil
+	}
+	return append([]string(nil), v.identities.authors...)
+}
+
 const (
 	ConfigLinesLoadFrom = "LineHistory.LoadFrom"
 )
 
 func (analyser *LineHistoryLoader) Name() string {
-	return "LineHistory"
+	return "LineHistoryLoader"
 }
 
 func (analyser *LineHistoryLoader) Provides() []string {
@@ -105,7 +163,7 @@ func (analyser *LineHistoryLoader) ListConfigurationOptions() []core.Configurati
 	return []core.ConfigurationOption{{
 		Name:        ConfigLinesLoadFrom,
 		Description: "Temporary directory where to save the hibernated RBTree allocators.",
-		Flag:        "lines-load",
+		Flag:        "history-line-load",
 		Type:        core.PathConfigurationOption,
 		Default:     ""},
 	}
@@ -124,8 +182,8 @@ func (analyser *LineHistoryLoader) Configure(facts map[string]interface{}) error
 		}
 	}
 
-	var resolver core.FileIdResolver = loadedFileIdResolver{analyser}
-	facts[core.FactLineHistoryResolver] = resolver
+	facts[core.FactLineHistoryResolver] = loadedFileIdResolver{analyser}
+	facts[core.FactIdentityResolver] = authorResolver{analyser}
 
 	return nil
 }
@@ -136,124 +194,109 @@ func (analyser *LineHistoryLoader) ConfigureUpstream(_ map[string]interface{}) e
 
 // Initialize resets the temporary caches and prepares this PipelineItem for a series of Consume()
 // calls. The repository which is going to be analysed is supplied as an argument.
-func (analyser *LineHistoryLoader) Initialize(repository *git.Repository) error {
+func (analyser *LineHistoryLoader) Initialize(*git.Repository) error {
 	analyser.l = core.NewLogger()
-	analyser.fileNames = map[FileId]string{}
-	analyser.files = map[string]*File{}
-	analyser.fileAllocator = rbtree.NewAllocator()
-	//	analyser.fileAllocator.HibernationThreshold = analyser.HibernationThreshold
+	analyser.files = map[FileId]fileInfo{}
+	analyser.nextCommit = 0
 
 	return nil
 }
 
-func (analyser *LineHistoryLoader) Consume(deps map[string]interface{}) (map[string]interface{}, error) {
-	if analyser.fileAllocator.Size() == 0 && len(analyser.files) > 0 {
-		panic("LineHistoryLoader.Consume() was called on a hibernated instance")
+func (analyser *LineHistoryLoader) Consume(map[string]interface{}) (map[string]interface{}, error) {
+
+	var commit commitInfo
+	if analyser.nextCommit < len(analyser.commits) {
+		commit = analyser.commits[analyser.nextCommit]
+		analyser.nextCommit++
+	} else {
+		commit.Author = core.AuthorMissing
 	}
 
-	//author := core.AuthorId(deps[identity.DependencyAuthor].(int))
-	//analyser.tick = core.TickNumber(deps[items.DependencyTick].(int))
-
-	result := map[string]interface{}{DependencyLineHistory: core.LineHistoryChanges{
-		//Changes:  analyser.changes,
-		//Resolver: FileIdResolver{analyser},
-	}}
+	result := map[string]interface{}{
+		DependencyLineHistory: core.LineHistoryChanges{
+			Changes:  commit.Changes,
+			Resolver: loadedFileIdResolver{analyser},
+		},
+		items.DependencyTick:      int(commit.Tick),
+		identity.DependencyAuthor: int(commit.Author),
+	}
 
 	return result, nil
 }
 
-func (analyser *LineHistoryLoader) findFileAndName(id FileId) (*File, string) {
-	if n, ok := analyser.fileNames[id]; ok {
-		if f := analyser.files[n]; f != nil {
-			return f, n
-		}
-	}
-	return nil, ""
-}
-
-// Fork clones this item. Everything is copied by reference except the files
-// which are copied by value.
 func (analyser *LineHistoryLoader) Fork(n int) []core.PipelineItem {
-	result := make([]core.PipelineItem, n)
-
-	for i := range result {
-		clone := *analyser
-
-		//clone.files = make(map[string]*File, len(analyser.files))
-		//clone.fileNames = make(map[FileId]string, len(analyser.fileNames))
-		//clone.fileAllocator = clone.fileAllocator.Clone()
-		//for key, file := range analyser.files {
-		//	clone.files[key] = file.CloneShallowWithUpdaters(clone.fileAllocator, clone.updateChangeList)
-		//	clone.fileNames[file.Id] = key
-		//}
-
-		result[i] = &clone
-	}
-
-	return result
+	return core.ForkSamePipelineItem(analyser, n)
 }
 
-// Merge combines several items together. We apply the special file merging logic here.
-func (analyser *LineHistoryLoader) Merge(items []core.PipelineItem) {
-	analyser.onNewTick()
-
+func (analyser *LineHistoryLoader) Merge([]core.PipelineItem) {
+	analyser.l.Critical("cant be merged")
 }
-
-// Hibernate compresses the bound RBTree memory with the files.
-func (analyser *LineHistoryLoader) Hibernate() error {
-	analyser.fileAllocator.Hibernate()
-	//if analyser.HibernationToDisk {
-	//	file, err := ioutil.TempFile(analyser.HibernationDirectory, "*-hercules.bin")
-	//	if err != nil {
-	//		return err
-	//	}
-	//	analyser.hibernatedFileName = file.Name()
-	//	err = file.Close()
-	//	if err != nil {
-	//		analyser.hibernatedFileName = ""
-	//		return err
-	//	}
-	//	err = analyser.fileAllocator.Serialize(analyser.hibernatedFileName)
-	//	if err != nil {
-	//		analyser.hibernatedFileName = ""
-	//		return err
-	//	}
-	//}
-	return nil
-}
-
-// Boot decompresses the bound RBTree memory with the files.
-func (analyser *LineHistoryLoader) Boot() error {
-	//if analyser.hibernatedFileName != "" {
-	//	err := analyser.fileAllocator.Deserialize(analyser.hibernatedFileName)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	err = os.Remove(analyser.hibernatedFileName)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	analyser.hibernatedFileName = ""
-	//}
-	//analyser.fileAllocator.Boot()
-	return nil
-}
-
-func (analyser *LineHistoryLoader) onNewTick() {
-}
-
-//func (analyser *LineHistoryLoader) newFile(
-//	_ plumbing.Hash, name string, author core.AuthorId, tick core.TickNumber, size int) (*File, error) {
-//
-//	fileId := analyser.fileIdCounter.next()
-//	analyser.fileNames[fileId] = name
-//	file := NewFile(fileId, packPersonWithTick(author, tick), size, analyser.fileAllocator, analyser.updateChangeList)
-//	analyser.files[name] = file
-//
-//	return file, nil
-//}
 
 func (analyser *LineHistoryLoader) loadChangesFrom(name string) error {
+	if input, err := os.Open(name); err == nil {
+		defer func() { _ = input.Close() }()
+		return analyser.loadChangesFromYaml(yaml.NewDecoder(input))
+	} else {
+		return err
+	}
+}
+
+var regexSplitBySpace = regexp.MustCompile("\\s+")
+
+func (analyser *LineHistoryLoader) loadChangesFromYaml(decoder *yaml.Decoder) error {
+	type dumperScheme struct {
+		Commits yaml.MapSlice     `yaml:"commits"`
+		Authors []string          `yaml:"author_sequence"`
+		Files   map[FileId]string `yaml:"file_sequence"`
+	}
+	values := struct {
+		LineDumper dumperScheme `yaml:"LineDumper"`
+	}{}
+
+	if err := decoder.Decode(&values); err != nil {
+		return err
+	}
+
+	analyser.authors = values.LineDumper.Authors
+
+	analyser.files = make(map[FileId]fileInfo, len(values.LineDumper.Files))
+	for k, v := range values.LineDumper.Files {
+		analyser.files[k] = fileInfo{Name: v}
+	}
+
+	analyser.commits = make([]commitInfo, 0, len(values.LineDumper.Commits))
+	for _, yamlCommit := range values.LineDumper.Commits {
+		analyser.commits = append(analyser.commits, commitInfo{})
+		info := &analyser.commits[len(analyser.commits)-1]
+		for r := bufio.NewScanner(strings.NewReader(yamlCommit.Value.(string))); r.Scan(); {
+			line := r.Text()
+			chunks := regexSplitBySpace.Split(line, -1)
+			if len(chunks) != 6 {
+				return fmt.Errorf("unexpected number of fields '%d' from: %s", len(chunks), line)
+			}
+			vals := make([]int, len(chunks))
+			for i, s := range chunks {
+				v, err := strconv.Atoi(s)
+				if err != nil {
+					return fmt.Errorf("unable to parse '%s' from: %s", s, line)
+				}
+				vals[i] = v
+			}
+			change := core.LineHistoryChange{
+				FileId:     core.FileId(vals[0]),
+				PrevAuthor: core.AuthorId(vals[1]),
+				PrevTick:   core.TickNumber(vals[2]),
+				CurrAuthor: core.AuthorId(vals[3]),
+				CurrTick:   core.TickNumber(vals[4]),
+				Delta:      vals[5],
+			}
+			info.Changes = append(info.Changes, change)
+		}
+		info.Tick = info.Changes[0].CurrTick
+		info.Author = info.Changes[0].CurrAuthor
+		info.Hash = plumbing.NewHash(yamlCommit.Key.(string))
+	}
+
 	return nil
 }
 

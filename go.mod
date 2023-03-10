@@ -24,6 +24,7 @@ require (
 	gopkg.in/bblfsh/sdk.v2 v2.14.1
 	gopkg.in/cheggaaa/pb.v1 v1.0.20
 	gopkg.in/vmarkovtsev/BiDiSentiment.v1 v1.0.0-20180311115214-75f168ddf161
+	gopkg.in/yaml.v2 v2.2.7
 )
 
 require (
@@ -72,7 +73,6 @@ require (
 	gopkg.in/src-d/go-siva.v1 v1.7.0 // indirect
 	gopkg.in/toqueteos/substring.v1 v1.0.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v2 v2.2.7 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
 

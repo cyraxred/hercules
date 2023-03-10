@@ -71,9 +71,16 @@ func loadSSHIdentity(sshIdentity string) (*ssh.PublicKeys, error) {
 
 func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentity string) *git.Repository {
 	var repository *git.Repository
-	var backend storage.Storer
 	var err error
-	if strings.Contains(uri, "://") || regexp.MustCompile("^[A-Za-z]\\w*@[A-Za-z0-9][\\w.]*:").MatchString(uri) {
+
+	if uri == "-" && cachePath == "" {
+		repository, err = git.Init(memory.NewStorage(), memfs.New())
+		w, _ := repository.Worktree()
+		if _, err = w.Commit("Initial", &git.CommitOptions{AllowEmptyCommits: true}); err != nil {
+			log.Panicf("failed to create a virtual repo: %v", err)
+		}
+	} else if strings.Contains(uri, "://") || regexp.MustCompile("^[A-Za-z]\\w*@[A-Za-z0-9][\\w.]*:").MatchString(uri) {
+		var backend storage.Storer
 		if cachePath != "" {
 			backend = filesystem.NewStorage(osfs.New(cachePath), cache.NewObjectLRUDefault())
 			_, err = os.Stat(cachePath)
@@ -91,8 +98,8 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 		}
 
 		if sshIdentity != "" {
-			auth, err := loadSSHIdentity(sshIdentity)
-			if err != nil {
+			auth, err2 := loadSSHIdentity(sshIdentity)
+			if err2 != nil {
 				log.Printf("Failed loading SSH Identity %s\n", err)
 			}
 			cloneOptions.Auth = auth
@@ -106,8 +113,8 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 		localFs := osfs.New(filepath.Dir(uri))
 		tmpFs := memfs.New()
 		basePath := filepath.Base(uri)
-		fs, err2 := sivafs.NewFilesystem(localFs, basePath, tmpFs)
-		if err2 != nil {
+		fs, err3 := sivafs.NewFilesystem(localFs, basePath, tmpFs)
+		if err3 != nil {
 			log.Panicf("unable to create a siva filesystem from %s: %v", uri, err2)
 		}
 		sivaStorage := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
@@ -260,8 +267,6 @@ targets can be added using the --plugin system.`,
 			log.Fatalf("failed to list the commits: %v", err)
 		}
 		cmdlineFacts[hercules.ConfigPipelineCommits] = commits
-		dryRun, _ := cmdlineFacts[hercules.ConfigPipelineDryRun].(bool)
-		var deployed []hercules.LeafPipelineItem
 
 		var priorityFn = func(items []core.PipelineItem) core.PipelineItem {
 			if len(items) == 0 {
@@ -273,39 +278,8 @@ targets can be added using the --plugin system.`,
 			return items[0]
 		}
 
-		{
-			deployList := make([][]string, 0, len(cmdlineDeployed))
-			for name, valPtr := range cmdlineDeployed {
-				if *valPtr {
-					deployList = append(deployList, []string{name})
-				}
-			}
-
-			flags.Visit(func(flag *pflag.Flag) {
-				if names := activationByFlags[flag.Name]; len(names) > 0 {
-					deployList = append(deployList, names)
-				}
-			})
-
-			for _, names := range deployList {
-				switch summons := hercules.Registry.Summon(names...); {
-				case len(summons) == 0:
-					log.Fatalf("missing item(s): %v", names)
-				case len(summons) > 1:
-					if len(names) == 2 {
-						log.Printf("ambigous item: %v", names)
-					}
-					summons[0] = priorityFn(summons)
-					summons = summons[:1]
-					fallthrough
-				default:
-					item := pipeline.DeployItemOnce(summons[0])
-					if !dryRun && item == summons[0] {
-						deployed = append(deployed, item.(hercules.LeafPipelineItem))
-					}
-				}
-			}
-		}
+		dryRun, _ := cmdlineFacts[hercules.ConfigPipelineDryRun].(bool)
+		deployed := deployItemsToPipeline(pipeline, flags, dryRun, priorityFn)
 
 		err = pipeline.InitializeExt(cmdlineFacts, priorityFn, true)
 		if err != nil {
@@ -329,6 +303,44 @@ targets can be added using the --plugin system.`,
 			printResults(uri, deployed, results)
 		}
 	},
+}
+
+func deployItemsToPipeline(pipeline *core.Pipeline, flags *pflag.FlagSet, dryRun bool,
+	priorityFn func(items []core.PipelineItem) core.PipelineItem,
+) (deployed []hercules.LeafPipelineItem) {
+	deployList := make([][]string, 0, len(cmdlineDeployed))
+	for name, valPtr := range cmdlineDeployed {
+		if *valPtr {
+			deployList = append(deployList, []string{name})
+		}
+	}
+
+	flags.Visit(func(flag *pflag.Flag) {
+		if names := activationByFlags[flag.Name]; len(names) > 0 {
+			deployList = append(deployList, names)
+		}
+	})
+
+	for _, names := range deployList {
+		switch summons := hercules.Registry.Summon(names...); {
+		case len(summons) == 0:
+			log.Fatalf("missing item(s): %v", names)
+		case len(summons) > 1:
+			if len(names) == 2 {
+				log.Printf("ambigous item: %v", names)
+			}
+			summons[0] = priorityFn(summons)
+			summons = summons[:1]
+			fallthrough
+		default:
+			item := pipeline.DeployItemOnce(summons[0])
+			if !dryRun && item == summons[0] {
+				deployed = append(deployed, item.(hercules.LeafPipelineItem))
+			}
+		}
+	}
+
+	return
 }
 
 type flagSorter struct {
