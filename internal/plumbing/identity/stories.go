@@ -61,6 +61,10 @@ func (v storyResolver) Count() int {
 	return len(v.identities.MergeNames)
 }
 
+func (v storyResolver) PrivateNameOf(id core.AuthorId) string {
+	return v.FriendlyNameOf(id)
+}
+
 func (v storyResolver) FriendlyNameOf(id core.AuthorId) string {
 	if id == core.AuthorMissing || id < 0 || v.identities == nil || int(id) >= len(v.identities.MergeNames) {
 		return core.AuthorMissingName
@@ -78,7 +82,7 @@ func (v storyResolver) ForEachIdentity(callback func(core.AuthorId, string)) boo
 	return true
 }
 
-func (v storyResolver) CopyFriendlyNames() []string {
+func (v storyResolver) CopyNames(bool) []string {
 	if v.identities == nil {
 		return nil
 	}
@@ -177,7 +181,7 @@ func (detector *StoryDetector) Initialize(*git.Repository) error {
 }
 
 func (detector *StoryDetector) Features() []string {
-	return []string{core.FeatureMergeTracks}
+	return []string{core.FeatureMergeTracks, core.FeatureGitCommits}
 }
 
 // Consume runs this PipelineItem on the next commit data.

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -24,6 +25,7 @@ type PeopleDetector struct {
 	// ExactSignatures chooses the matching algorithm: opportunistic email || name
 	// or exact email && name
 	ExactSignatures bool
+	Anonymity       bool
 
 	l core.Logger
 }
@@ -40,6 +42,8 @@ const (
 	// (PeopleDetector.Configure()) which changes the matching algorithm to exact signature (name + email)
 	// correspondence.
 	ConfigIdentityDetectorExactSignatures = "PeopleDetector.ExactSignatures"
+
+	ConfigIdentityDetectorAnonymity = "PeopleDetector.Anonymity"
 )
 
 var _ core.IdentityResolver = peopleResolver{}
@@ -62,20 +66,26 @@ func (v peopleResolver) Count() int {
 	return len(v.identities.ReversedPeopleDict)
 }
 
-func (v peopleResolver) FriendlyNameOf(id core.AuthorId) string {
+func (v peopleResolver) nameOf(id core.AuthorId, anonymity bool) string {
 	if id == core.AuthorMissing || id < 0 || v.identities == nil || int(id) >= len(v.identities.ReversedPeopleDict) {
 		return core.AuthorMissingName
 	}
-	return v.identities.ReversedPeopleDict[id]
+	if !anonymity {
+		return v.identities.ReversedPeopleDict[id]
+	}
+	return v.anonymizeName(id)
 }
 
-func (v peopleResolver) FindIdOf(name string) core.AuthorId {
-	if v.identities != nil {
-		if id, ok := v.identities.PeopleDict[name]; ok {
-			return core.AuthorId(id)
-		}
-	}
-	return core.AuthorId(-1)
+func (v peopleResolver) FriendlyNameOf(id core.AuthorId) string {
+	return v.nameOf(id, v.identities.Anonymity)
+}
+
+func (v peopleResolver) PrivateNameOf(id core.AuthorId) string {
+	return v.nameOf(id, false)
+}
+
+func (v peopleResolver) anonymizeName(id core.AuthorId) string {
+	return fmt.Sprintf("Author %3d", id)
 }
 
 func (v peopleResolver) ForEachIdentity(callback func(core.AuthorId, string)) bool {
@@ -83,13 +93,27 @@ func (v peopleResolver) ForEachIdentity(callback func(core.AuthorId, string)) bo
 		return false
 	}
 	for id, name := range v.identities.ReversedPeopleDict {
+		if v.identities.Anonymity {
+			name = v.anonymizeName(core.AuthorId(id))
+		}
 		callback(core.AuthorId(id), name)
 	}
 	return true
 }
 
-func (v peopleResolver) CopyFriendlyNames() []string {
-	return append([]string(nil), v.identities.ReversedPeopleDict...)
+func (v peopleResolver) CopyNames(privateNames bool) []string {
+	if v.identities == nil {
+		return nil
+	}
+	if privateNames || !v.identities.Anonymity {
+		return append([]string(nil), v.identities.ReversedPeopleDict...)
+	}
+
+	names := make([]string, len(v.identities.ReversedPeopleDict))
+	for i := range names {
+		names[i] = v.anonymizeName(core.AuthorId(i))
+	}
+	return names
 }
 
 // Name of this PipelineItem. Uniquely identifies the type, used for mapping keys, etc.
@@ -111,9 +135,13 @@ func (detector *PeopleDetector) Requires() []string {
 	return []string{}
 }
 
+func (detector *PeopleDetector) Features() []string {
+	return []string{core.FeatureGitCommits}
+}
+
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (detector *PeopleDetector) ListConfigurationOptions() []core.ConfigurationOption {
-	options := [...]core.ConfigurationOption{{
+	return []core.ConfigurationOption{{
 		Name:        ConfigIdentityDetectorPeopleDictPath,
 		Description: "Path to the file with developer -> name|email associations.",
 		Flag:        "people-dict",
@@ -124,9 +152,13 @@ func (detector *PeopleDetector) ListConfigurationOptions() []core.ConfigurationO
 			"identities and should not be normally used.",
 		Flag:    "exact-signatures",
 		Type:    core.BoolConfigurationOption,
-		Default: false},
+		Default: false}, {
+		Name:        ConfigIdentityDetectorAnonymity,
+		Description: "Replaces identity info with sequential number.",
+		Flag:        "people-anonymity",
+		Type:        core.BoolConfigurationOption,
+		Default:     false},
 	}
-	return options[:]
 }
 
 // Configure sets the properties previously published by ListConfigurationOptions().
@@ -144,6 +176,10 @@ func (detector *PeopleDetector) Configure(facts map[string]interface{}) error {
 
 	if val, exists := facts[ConfigIdentityDetectorExactSignatures].(bool); exists {
 		detector.ExactSignatures = val
+	}
+
+	if val, exists := facts[ConfigIdentityDetectorAnonymity].(bool); exists {
+		detector.Anonymity = val
 	}
 
 	if peopleDictPath, ok := facts[ConfigIdentityDetectorPeopleDictPath].(string); ok && peopleDictPath != "" {

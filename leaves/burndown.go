@@ -301,7 +301,8 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 	if peopleNumber > 0 {
 		analyser.collectFileOwnership(fileOwnership)
 
-		for i, history := range analyser.peopleHistories {
+		for i := range peopleHistories {
+			history := analyser.peopleHistories[i]
 			if len(history) > 0 {
 				// there can be people with only trivial merge commits and without own lines
 				peopleHistories[i], _ = analyser.groupSparseHistory(history, lastTick)
@@ -317,7 +318,8 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 	var peopleMatrix burndown.DenseHistory
 	if len(analyser.matrix) > 0 {
 		peopleMatrix = make(burndown.DenseHistory, peopleNumber)
-		for i, row := range analyser.matrix {
+		for i := range peopleMatrix {
+			row := analyser.matrix[i]
 			pRow := make([]int64, peopleNumber+2)
 			peopleMatrix[i] = pRow
 			for key, val := range row {
@@ -338,7 +340,7 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 		PeopleHistories:    peopleHistories,
 		PeopleMatrix:       peopleMatrix,
 		tickSize:           analyser.tickSize,
-		reversedPeopleDict: analyser.peopleResolver.CopyFriendlyNames(),
+		reversedPeopleDict: analyser.peopleResolver.CopyNames(false),
 		sampling:           analyser.Sampling,
 		granularity:        analyser.Granularity,
 	}

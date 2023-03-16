@@ -291,7 +291,7 @@ func TestLinesConsume(t *testing.T) {
 
 		for _, c := range resultChanges.Changes {
 			if c.IsDelete() {
-				assert.Equal(t, core.AuthorId(core.AuthorMissing), c.CurrAuthor)
+				assert.NotEqual(t, core.AuthorId(core.AuthorMissing), c.CurrAuthor)
 				assert.Equal(t, core.AuthorId(core.AuthorMissing), c.PrevAuthor)
 				deleted[c.FileId] += 1
 			} else {

@@ -464,7 +464,8 @@ func (analyser *LegacyBurndownAnalysis) Finalize() interface{} {
 		})
 	}
 	peopleHistories := make([]DenseHistory, analyser.PeopleNumber)
-	for i, history := range analyser.peopleHistories {
+	for i := range peopleHistories {
+		history := analyser.peopleHistories[i]
 		if len(history) > 0 {
 			// there can be people with only trivial merge commits and without own lines
 			peopleHistories[i], _ = analyser.groupSparseHistory(history, lastTick)
@@ -478,7 +479,8 @@ func (analyser *LegacyBurndownAnalysis) Finalize() interface{} {
 	var peopleMatrix DenseHistory
 	if len(analyser.matrix) > 0 {
 		peopleMatrix = make(DenseHistory, analyser.PeopleNumber)
-		for i, row := range analyser.matrix {
+		for i := range peopleMatrix {
+			row := analyser.matrix[i]
 			mrow := make([]int64, analyser.PeopleNumber+2)
 			peopleMatrix[i] = mrow
 			for key, val := range row {

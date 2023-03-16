@@ -15,6 +15,7 @@ import (
 
 func TestPipelineSerialize(t *testing.T) {
 	pipeline := core.NewPipeline(test.Repository)
+	pipeline.SetFeature(core.FeatureGitCommits)
 	pipeline.SetFeature(uast.FeatureUast)
 	pipeline.DeployItem(&leaves.LegacyBurndownAnalysis{})
 	facts := map[string]interface{}{}
@@ -58,6 +59,7 @@ func TestPipelineSerialize(t *testing.T) {
 
 func TestPipelineSerializeNoUast(t *testing.T) {
 	pipeline := core.NewPipeline(test.Repository)
+	pipeline.SetFeature(core.FeatureGitCommits)
 	pipeline.DeployItem(&leaves.LegacyBurndownAnalysis{})
 	facts := map[string]interface{}{}
 	facts[core.ConfigPipelineDryRun] = true
@@ -92,7 +94,8 @@ func TestPipelineSerializeNoUast(t *testing.T) {
 
 func TestPipelineResolveIntegration(t *testing.T) {
 	pipeline := core.NewPipeline(test.Repository)
+	pipeline.SetFeature(core.FeatureGitCommits)
 	pipeline.DeployItem(&leaves.LegacyBurndownAnalysis{})
 	pipeline.DeployItem(&leaves.CouplesAnalysis{})
-	assert.NoError(t, pipeline.Initialize(nil))
+	assert.NoError(t, pipeline.Initialize(map[string]interface{}{}))
 }

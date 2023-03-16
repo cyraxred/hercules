@@ -38,6 +38,9 @@ const (
 	StringsConfigurationOption
 	// PathConfigurationOption reflects the file system path value type.
 	PathConfigurationOption
+
+	FeatureGitCommits = "git.commits"
+	FeatureGitStub    = "git.stub"
 )
 
 // String() returns an empty string for the boolean type, "int" for integers and "string" for
@@ -597,115 +600,15 @@ func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriority
 		}
 	}
 
-	// break cycles - unwinds sequential processing of same facts
 	if len(ambiguousInputs) > 0 {
-		var ambiguousDataKeys []string
+		ambiguousDataKeys := make([]string, 0, len(ambiguousInputs))
 		for key := range ambiguousInputs {
 			ambiguousDataKeys = append(ambiguousDataKeys, key)
 		}
-		graph.Sort(ambiguousDataKeys)
-		bfsIndex := graph.BreadthSort() // TODO improve sorting to consider node ordering
 
-		for _, key := range ambiguousDataKeys {
-			ambInputs := graph.FindParents(key)
-			toposort.SortByNodeIndex(ambInputs, bfsIndex)
-
-			excludes := map[string]struct{}{}
-
-			{
-				last := len(ambInputs)
-				lastLevel := 0
-				for i := last - 1; i >= -1; i-- {
-					level := -1
-					if i >= 0 {
-						level = bfsIndex[ambInputs[i]].Level
-					}
-					if level != lastLevel {
-						if s := ambInputs[i+1 : last]; len(s) > 1 {
-							graph.Sort(s) // because BreadthSort doesn't do it properly
-							pipeline.resolveAlternatives(graph, s, name2item, priorityFn, excludes)
-						}
-						lastLevel = level
-						last = i + 1
-					}
-				}
-			}
-
-			if len(excludes) > 0 {
-				j := 0
-				for i := 0; i < len(ambInputs); i++ {
-					ambInput := ambInputs[i]
-					if _, ok := excludes[ambInput]; ok {
-						// resolveAlternatives will only exclude equivalent nodes, so there will be no change to DAG
-						graph.RemoveNode(ambInput)
-						continue
-					}
-					if i != j {
-						ambInputs[j] = ambInputs[i]
-					}
-					j++
-				}
-				ambInputs = ambInputs[:j]
-			}
-
-			if len(ambInputs) < 2 {
-				continue
-			}
-
-			for _, ambInput := range ambInputs {
-				graph.RemoveEdge(ambInput, key)
-			}
-
-			replacingParents := map[string]string{}
-			nextCycleNode := key
-			for i := len(ambInputs) - 1; i >= 0; i-- {
-				ambInput := ambInputs[i]
-				graph.AddEdge(ambInput, key)
-				cycle := graph.FindCycle(ambInput)
-
-				nextNode := ambInput
-				if len(cycle) == 0 {
-					if i != 0 {
-						continue
-					}
-					nextNode = key
-				} else if len(cycle) == 1 || cycle[1] != key {
-					panic("unexpected")
-				} else {
-					if len(cycle) > 2 {
-						nextNode = cycle[2]
-					}
-					graph.RemoveEdge(key, nextNode)
-				}
-
-				if nextCycleNode != key {
-					graph.RemoveEdge(ambInput, key)
-					graph.AddEdge(ambInput, nextCycleNode)
-					replacingParents[nextCycleNode] = ambInput
-				}
-
-				nextCycleNode = nextNode
-			}
-
-			children := graph.FindChildren(key)
-
-			for _, child := range children {
-				cycle := graph.FindCycle(child)
-				if len(cycle) == 0 {
-					continue
-				} else if len(cycle) < 3 || cycle[len(cycle)-1] != key {
-					panic("unexpected")
-				}
-				loopingParent := cycle[len(cycle)-2]
-				replacingParent := replacingParents[loopingParent]
-				if replacingParent == "" {
-					panic("unexpected")
-				}
-				graph.RemoveEdge(key, child)
-				graph.AddEdge(replacingParent, child)
-			}
-		}
+		pipeline.resolveAmbiguous(ambiguousDataKeys, graph, name2item, priorityFn)
 	}
+
 	pipelinePlan, ok := graph.Toposort()
 	if !ok {
 		_, _ = fmt.Fprint(os.Stderr, graph.DebugDump())
@@ -721,25 +624,146 @@ func (pipeline *Pipeline) resolve(dumpPath string, priorityFn DependencyPriority
 	if dumpPath != "" {
 		// If there is a floating difference, uncomment this:
 		// fmt.Fprint(os.Stderr, graphCopy.DebugDump())
-		_ = ioutil.WriteFile(dumpPath, []byte(graph.Serialize(pipelinePlan)), 0666)
-		absPath, _ := filepath.Abs(dumpPath)
-		pipeline.l.Infof("Wrote the DAG to %s\n", absPath)
+		plan := graph.Serialize(pipelinePlan)
+		if dumpPath != "-" {
+			_ = ioutil.WriteFile(dumpPath, []byte(plan), 0666)
+			absPath, _ := filepath.Abs(dumpPath)
+			pipeline.l.Infof("Wrote the DAG to %s\n", absPath)
+		} else {
+			_, _ = fmt.Fprint(os.Stderr, plan)
+		}
 	}
 	return nil
+}
+
+// break cycles - unwinds sequential processing of same facts
+func (pipeline *Pipeline) resolveAmbiguous(ambiguousDataKeys []string,
+	graph *toposort.Graph, name2item map[string]PipelineItem, priorityFn DependencyPriorityFunc,
+) {
+	graph.Sort(ambiguousDataKeys)
+	bfsIndex := graph.BreadthSort() // TODO improve sorting to consider node ordering
+
+	for _, key := range ambiguousDataKeys {
+		ambInputs := graph.FindParents(key)
+		toposort.SortByNodeIndex(ambInputs, bfsIndex)
+
+		excludes := map[string]struct{}{}
+
+		{
+			last := len(ambInputs)
+			lastLevel := 0
+			for i := last - 1; i >= -1; i-- {
+				level := -1
+				if i >= 0 {
+					level = bfsIndex[ambInputs[i]].Level
+				}
+				if level != lastLevel {
+					if s := ambInputs[i+1 : last]; len(s) > 1 {
+						graph.Sort(s) // because BreadthSort doesn't do it properly
+						pipeline.resolveAlternatives(graph, s, name2item, priorityFn, excludes)
+					}
+					lastLevel = level
+					last = i + 1
+				}
+			}
+		}
+
+		if len(excludes) > 0 {
+			j := 0
+			for i := 0; i < len(ambInputs); i++ {
+				ambInput := ambInputs[i]
+				if _, ok := excludes[ambInput]; ok {
+					// resolveAlternatives will only exclude equivalent nodes, so there will be no change to DAG
+					graph.RemoveNode(ambInput)
+					continue
+				}
+				if i != j {
+					ambInputs[j] = ambInputs[i]
+				}
+				j++
+			}
+			ambInputs = ambInputs[:j]
+		}
+
+		if len(ambInputs) < 2 {
+			continue
+		}
+
+		for _, ambInput := range ambInputs {
+			graph.RemoveEdge(ambInput, key)
+		}
+
+		replacingParents := map[string]string{}
+		nextCycleNode := key
+		for i := len(ambInputs) - 1; i >= 0; i-- {
+			ambInput := ambInputs[i]
+			graph.AddEdge(ambInput, key)
+			cycle := graph.FindCycle(ambInput)
+
+			nextNode := ambInput
+			if len(cycle) == 0 {
+				if i != 0 {
+					continue
+				}
+				nextNode = key
+			} else if len(cycle) == 1 || cycle[1] != key {
+				panic("unexpected")
+			} else {
+				if len(cycle) > 2 {
+					nextNode = cycle[2]
+				}
+				graph.RemoveEdge(key, nextNode)
+			}
+
+			if nextCycleNode != key {
+				graph.RemoveEdge(ambInput, key)
+				graph.AddEdge(ambInput, nextCycleNode)
+				replacingParents[nextCycleNode] = ambInput
+			}
+
+			nextCycleNode = nextNode
+		}
+
+		children := graph.FindChildren(key)
+
+		for _, child := range children {
+			cycle := graph.FindCycle(child)
+			if len(cycle) == 0 {
+				continue
+			} else if len(cycle) < 3 || cycle[len(cycle)-1] != key {
+				panic("unexpected")
+			}
+			loopingParent := cycle[len(cycle)-2]
+			replacingParent := replacingParents[loopingParent]
+			if replacingParent == "" {
+				panic("unexpected")
+			}
+			graph.RemoveEdge(key, child)
+			graph.AddEdge(replacingParent, child)
+		}
+	}
 }
 
 // Initialize prepares the pipeline for the execution (Run()). This function
 // resolves the execution DAG, Configure()-s and Initialize()-s the items in it in the
 // topological dependency order. `facts` are passed inside Configure(). They are mutable.
-func (pipeline *Pipeline) Initialize(aFacts map[string]interface{}) error {
-	return pipeline.InitializeExt(aFacts, func(items []PipelineItem) PipelineItem {
+func (pipeline *Pipeline) Initialize(facts map[string]interface{}) error {
+	if _, exists := facts[ConfigPipelineCommits]; !exists {
+		var err error
+		facts[ConfigPipelineCommits], err = pipeline.Commits(false)
+		if err != nil {
+			pipeline.l.Errorf("failed to list the commits: %v", err)
+			return err
+		}
+	}
+	return pipeline.InitializeExt(facts, func(items []PipelineItem) PipelineItem {
 		return items[0]
 	}, false)
 }
 
 type DependencyPriorityFunc = func(items []PipelineItem) PipelineItem
 
-func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
+func (pipeline *Pipeline) InitializeExt(facts map[string]interface{},
 	priorityFn DependencyPriorityFunc, preparePlan bool) error {
 	cleanReturn := false
 	defer func() {
@@ -750,10 +774,6 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 			}
 		}
 	}()
-	facts := make(map[string]interface{}, len(aFacts))
-	for k, v := range aFacts {
-		facts[k] = v
-	}
 
 	// set logger from facts, otherwise set the pipeline's logger as the logger
 	// to be used by all analysis tasks by setting the fact
@@ -763,14 +783,6 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 		facts[ConfigLogger] = pipeline.l
 	}
 
-	if _, exists := facts[ConfigPipelineCommits]; !exists {
-		var err error
-		facts[ConfigPipelineCommits], err = pipeline.Commits(false)
-		if err != nil {
-			pipeline.l.Errorf("failed to list the commits: %v", err)
-			return err
-		}
-	}
 	pipeline.PrintActions, _ = facts[ConfigPipelinePrintActions].(bool)
 	if val, exists := facts[ConfigPipelineHibernationDistance].(int); exists {
 		if val < 0 {
@@ -781,24 +793,24 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 		pipeline.HibernationDistance = val
 	}
 	dumpPath, _ := facts[ConfigPipelineDAGPath].(string)
-	err := pipeline.resolve(dumpPath, priorityFn)
-	if err != nil {
+	if err := pipeline.resolve(dumpPath, priorityFn); err != nil {
 		return err
 	}
+
 	if dumpPlan, exists := facts[ConfigPipelineDumpPlan].(bool); exists {
 		pipeline.DumpPlan = dumpPlan
 	}
 	if dryRun, exists := facts[ConfigPipelineDryRun].(bool); exists {
 		pipeline.DryRun = dryRun
-		if dryRun {
-			cleanReturn = true
-			return nil
-		}
 	}
 
 	mergeTracks, _ := pipeline.GetFeature(FeatureMergeTracks)
 
-	if preparePlan {
+	if !preparePlan && mergeTracks {
+		return fmt.Errorf("merge tracks mode is not allowed")
+	}
+
+	planCooker := func() {
 		if commits, ok := facts[ConfigPipelineCommits].([]*object.Commit); ok {
 			var prepared preparedRun
 			prepared.commitCount = len(commits)
@@ -807,17 +819,31 @@ func (pipeline *Pipeline) InitializeExt(aFacts map[string]interface{},
 				facts[FactMergeHashCount] = prepared.mergeHashCount
 			}
 			pipeline.preparedRun = &prepared
-		} else {
-			return fmt.Errorf("commits are not available")
+			return
 		}
-	} else if mergeTracks {
-		return fmt.Errorf("merge tracks mode is not allowed")
+		pipeline.preparedRun = nil
+	}
+
+	if preparePlan {
+		planCooker()
+	}
+
+	if pipeline.DryRun {
+		cleanReturn = true
+		return nil
 	}
 
 	for _, item := range pipeline.items {
 		if err := item.Configure(facts); err != nil {
 			cleanReturn = true
 			return errors.Wrapf(err, "%s failed to configure", item.Name())
+		}
+	}
+
+	if pipeline.preparedRun == nil && preparePlan {
+		planCooker()
+		if pipeline.preparedRun == nil {
+			return fmt.Errorf("commits are not available")
 		}
 	}
 

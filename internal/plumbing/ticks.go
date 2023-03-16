@@ -60,6 +60,10 @@ func (ticks *TicksSinceStart) Requires() []string {
 	return []string{}
 }
 
+func (*TicksSinceStart) Features() []string {
+	return []string{core.FeatureGitCommits}
+}
+
 // ListConfigurationOptions returns the list of changeable public properties of this PipelineItem.
 func (ticks *TicksSinceStart) ListConfigurationOptions() []core.ConfigurationOption {
 	return []core.ConfigurationOption{{
@@ -89,7 +93,7 @@ func (ticks *TicksSinceStart) Configure(facts map[string]interface{}) error {
 	return nil
 }
 
-func (*TicksSinceStart) ConfigureUpstream(facts map[string]interface{}) error {
+func (*TicksSinceStart) ConfigureUpstream(map[string]interface{}) error {
 	return nil
 }
 
