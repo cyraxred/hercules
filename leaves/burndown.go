@@ -51,15 +51,15 @@ type BurndownAnalysis struct {
 	globalHistory sparseHistory
 	// fileHistories is the daily deltas of each file's daily line counts.
 	fileHistories map[core.FileId]sparseHistory
-	// peopleHistories is the daily deltas of each person's daily line counts.
-	peopleHistories []sparseHistory
+	// authorHistories is the daily deltas of each person's daily line counts.
+	authorHistories []sparseHistory
 	// matrix is the mutual deletions and self insertions.
 	matrix []map[core.AuthorId]int64
 
 	// TickSize indicates the size of each time granule: day, hour, week, etc.
 	tickSize time.Duration
 
-	peopleResolver  core.IdentityResolver
+	authorResolver  core.IdentityResolver
 	primaryResolver core.FileIdResolver
 	fileResolver    core.FileIdResolver
 
@@ -113,10 +113,10 @@ func (analyser *BurndownAnalysis) Configure(facts map[string]interface{}) error 
 
 	if people, ok := facts[ConfigBurndownTrackPeople].(bool); people {
 		if val, ok := facts[core.FactIdentityResolver].(core.IdentityResolver); ok {
-			analyser.peopleResolver = val
+			analyser.authorResolver = val
 		}
 	} else if ok {
-		analyser.peopleResolver = nil
+		analyser.authorResolver = nil
 	}
 
 	if resolver, exists := facts[core.FactLineHistoryResolver].(core.FileIdResolver); exists {
@@ -165,11 +165,11 @@ func (analyser *BurndownAnalysis) Initialize(repository *git.Repository) error {
 	analyser.globalHistory = sparseHistory{}
 	analyser.fileHistories = map[core.FileId]sparseHistory{}
 
-	if analyser.peopleResolver == nil {
-		analyser.peopleResolver = core.NewIdentityResolver(nil, nil)
+	if analyser.authorResolver == nil {
+		analyser.authorResolver = core.NewIdentityResolver(nil, nil)
 	}
-	peopleCount := analyser.peopleResolver.MaxCount()
-	analyser.peopleHistories = make([]sparseHistory, peopleCount)
+	peopleCount := analyser.authorResolver.MaxCount()
+	analyser.authorHistories = make([]sparseHistory, peopleCount)
 	analyser.matrix = make([]map[core.AuthorId]int64, peopleCount)
 
 	return nil
@@ -198,7 +198,7 @@ func (analyser *BurndownAnalysis) Consume(deps map[string]interface{}) (map[stri
 		analyser.primaryResolver = changes.Resolver
 	}
 	analyser.fileResolver = changes.Resolver
-	peopleCount := analyser.peopleResolver.MaxCount()
+	peopleCount := analyser.authorResolver.MaxCount()
 
 	for _, change := range changes.Changes {
 		if change.IsDelete() {
@@ -254,10 +254,10 @@ func (analyser *BurndownAnalysis) updateAuthor(change core.LineHistoryChange) {
 		return
 	}
 
-	history := analyser.peopleHistories[change.PrevAuthor]
+	history := analyser.authorHistories[change.PrevAuthor]
 	if history == nil {
 		history = sparseHistory{}
-		analyser.peopleHistories[change.PrevAuthor] = history
+		analyser.authorHistories[change.PrevAuthor] = history
 	}
 
 	history.updateDelta(int(change.PrevTick), int(change.CurrTick), change.Delta)
@@ -295,14 +295,14 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 		}
 	}
 
-	peopleNumber := analyser.peopleResolver.Count()
+	peopleNumber := analyser.authorResolver.Count()
 	peopleHistories := make([]burndown.DenseHistory, peopleNumber)
 
 	if peopleNumber > 0 {
 		analyser.collectFileOwnership(fileOwnership)
 
 		for i := range peopleHistories {
-			history := analyser.peopleHistories[i]
+			history := analyser.authorHistories[i]
 			if len(history) > 0 {
 				// there can be people with only trivial merge commits and without own lines
 				peopleHistories[i], _ = analyser.groupSparseHistory(history, lastTick)
@@ -340,7 +340,7 @@ func (analyser *BurndownAnalysis) Finalize() interface{} {
 		PeopleHistories:    peopleHistories,
 		PeopleMatrix:       peopleMatrix,
 		tickSize:           analyser.tickSize,
-		reversedPeopleDict: analyser.peopleResolver.CopyNames(false),
+		reversedPeopleDict: analyser.authorResolver.CopyNames(false),
 		sampling:           analyser.Sampling,
 		granularity:        analyser.Granularity,
 	}

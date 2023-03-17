@@ -82,20 +82,20 @@ func TestBurndownConfigure(t *testing.T) {
 	assert.Equal(t, bd.Sampling, 200)
 	assert.Equal(t, bd.TrackFiles, true)
 	assert.Equal(t, bd.tickSize, 24*time.Hour)
-	assert.Equal(t, bd.peopleResolver.Count(), len(people))
-	assert.Equal(t, bd.peopleResolver.MaxCount(), len(people))
+	assert.Equal(t, bd.authorResolver.Count(), len(people))
+	assert.Equal(t, bd.authorResolver.MaxCount(), len(people))
 
 	facts[ConfigBurndownTrackPeople] = false
 	assert.Nil(t, bd.Configure(facts))
-	assert.Nil(t, bd.peopleResolver)
+	assert.Nil(t, bd.authorResolver)
 
 	facts = map[string]interface{}{}
-	bd.peopleResolver = core.NewIdentityResolver(people, nil)
+	bd.authorResolver = core.NewIdentityResolver(people, nil)
 	assert.Nil(t, bd.Configure(facts))
 	assert.Equal(t, bd.Granularity, 100)
 	assert.Equal(t, bd.Sampling, 200)
 	assert.Equal(t, bd.TrackFiles, true)
-	assert.NotNil(t, bd.peopleResolver)
+	assert.NotNil(t, bd.authorResolver)
 }
 
 func TestBurndownRegistration(t *testing.T) {
@@ -208,7 +208,7 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 		Granularity:    30,
 		Sampling:       30,
 		TrackFiles:     true,
-		peopleResolver: core.NewIdentityResolver([]string{"P1", "P2"}, nil),
+		authorResolver: core.NewIdentityResolver([]string{"P1", "P2"}, nil),
 	}
 
 	totalLines := int64(0)
@@ -229,11 +229,11 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 		for _, v := range expectedFiles {
 			totalLines += v
 		}
-		assert.Len(t, bd.peopleHistories, 2)
+		assert.Len(t, bd.authorHistories, 2)
 
-		assert.Equal(t, bd.peopleHistories[0][0].deltas[0], totalLines)
-		//assert.Equal(t, bd.peopleHistories[0][0].totalInsert, totalLines)
-		//assert.Equal(t, bd.peopleHistories[0][0].totalDelete, int64(0))
+		assert.Equal(t, bd.authorHistories[0][0].deltas[0], totalLines)
+		//assert.Equal(t, bd.authorHistories[0][0].totalInsert, totalLines)
+		//assert.Equal(t, bd.authorHistories[0][0].totalDelete, int64(0))
 
 		assert.Len(t, bd.globalHistory, 1)
 		assert.Equal(t, bd.globalHistory[0].deltas[0], totalLines)
@@ -257,7 +257,7 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 		assert.Nil(t, bd2.Initialize(test.Repository))
 		_, err := bd2.Consume(deps)
 		assert.Nil(t, err)
-		assert.Len(t, bd2.peopleHistories, 0)
+		assert.Len(t, bd2.authorHistories, 0)
 		assert.Len(t, bd2.fileHistories, 0)
 	}
 
@@ -342,20 +342,20 @@ func TestBurndownConsumeFinalize(t *testing.T) {
 		assert.Nil(t, err)
 	}
 
-	assert.Len(t, bd.peopleHistories, 2)
-	assert.Equal(t, bd.peopleHistories[0][0].deltas[0], totalLines)
-	//assert.Equal(t, bd.peopleHistories[0][0].totalInsert, totalLines)
-	//assert.Equal(t, bd.peopleHistories[0][0].totalDelete, int64(0))
+	assert.Len(t, bd.authorHistories, 2)
+	assert.Equal(t, bd.authorHistories[0][0].deltas[0], totalLines)
+	//assert.Equal(t, bd.authorHistories[0][0].totalInsert, totalLines)
+	//assert.Equal(t, bd.authorHistories[0][0].totalDelete, int64(0))
 
-	assert.Equal(t, len(bd.peopleHistories[0][30].deltas), 1)
-	assert.Equal(t, bd.peopleHistories[0][30].deltas[0], int64(-681))
-	//assert.Equal(t, bd.peopleHistories[0][30].totalInsert, int64(0))
-	//assert.Equal(t, bd.peopleHistories[0][30].totalDelete, int64(-681))
+	assert.Equal(t, len(bd.authorHistories[0][30].deltas), 1)
+	assert.Equal(t, bd.authorHistories[0][30].deltas[0], int64(-681))
+	//assert.Equal(t, bd.authorHistories[0][30].totalInsert, int64(0))
+	//assert.Equal(t, bd.authorHistories[0][30].totalDelete, int64(-681))
 
-	assert.Equal(t, len(bd.peopleHistories[1][30].deltas), 1)
-	assert.Equal(t, bd.peopleHistories[1][30].deltas[30], int64(369))
-	//assert.Equal(t, bd.peopleHistories[1][30].totalInsert, int64(369))
-	//assert.Equal(t, bd.peopleHistories[1][30].totalDelete, int64(0))
+	assert.Equal(t, len(bd.authorHistories[1][30].deltas), 1)
+	assert.Equal(t, bd.authorHistories[1][30].deltas[30], int64(369))
+	//assert.Equal(t, bd.authorHistories[1][30].totalInsert, int64(369))
+	//assert.Equal(t, bd.authorHistories[1][30].totalDelete, int64(0))
 
 	assert.Len(t, bd.globalHistory, 2)
 	assert.Equal(t, len(bd.globalHistory[0].deltas), 1)
@@ -421,7 +421,7 @@ func prepareBDForSerialization(t *testing.T, firstAuthor, secondAuthor int) (
 		Granularity:    30,
 		Sampling:       30,
 		TrackFiles:     true,
-		peopleResolver: core.NewIdentityResolver([]string{"P1", "P2"}, nil),
+		authorResolver: core.NewIdentityResolver([]string{"P1", "P2"}, nil),
 		tickSize:       24 * time.Hour,
 	}
 	assert.Nil(t, bd.Initialize(test.Repository))
@@ -577,7 +577,7 @@ func prepareBDForSerialization(t *testing.T, firstAuthor, secondAuthor int) (
 	}
 
 	{
-		bd.peopleResolver = core.NewIdentityResolver([]string{"one@srcd", "two@srcd"}, nil)
+		bd.authorResolver = core.NewIdentityResolver([]string{"one@srcd", "two@srcd"}, nil)
 		_, err := bd.Consume(deps)
 		assert.Nil(t, err)
 	}
@@ -1054,7 +1054,7 @@ func TestBurndownEmptyFileHistory(t *testing.T) {
 		Granularity:    30,
 		globalHistory:  sparseHistory{0: sparseHistoryEntry{deltas: map[int]int64{0: 10}}},
 		fileHistories:  map[core.FileId]sparseHistory{1: {}},
-		peopleResolver: core.NewIdentityResolver(nil, nil),
+		authorResolver: core.NewIdentityResolver(nil, nil),
 	}
 	res := bd.Finalize().(BurndownResult)
 	assert.Len(t, res.GlobalHistory, 1)
