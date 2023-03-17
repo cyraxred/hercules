@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"net/url"
 	"os"
 	"path/filepath"
 	"plugin"
@@ -72,9 +73,19 @@ func loadSSHIdentity(sshIdentity string) (*ssh.PublicKeys, error) {
 var regexUri = regexp.MustCompile("^[A-Za-z]\\w*@[A-Za-z0-9][\\w.]*:")
 
 func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentity string,
-) (repository *git.Repository, repoFeature string) {
+) (repository *git.Repository, repoUri string, repoFeature string) {
 	var err error
+	repository, repoUri, repoFeature, err = loadRepositoryWithError(uri, cachePath, disableStatus, sshIdentity)
+	if err != nil {
+		log.Panicf("failed to open %s: %v", uri, err)
+	}
+	return
+}
+
+func loadRepositoryWithError(uri string, cachePath string, disableStatus bool, sshIdentity string,
+) (repository *git.Repository, repoUri string, repoFeature string, err error) {
 	repoFeature = core.FeatureGitCommits
+	repoUri = uri
 
 	if uri == "-" && cachePath == "" {
 		repository, err = git.Init(memory.NewStorage(), memfs.New())
@@ -95,7 +106,16 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 		} else {
 			backend = memory.NewStorage()
 		}
+
 		cloneOptions := &git.CloneOptions{URL: uri}
+
+		if parsed, err2 := url.Parse(uri); err2 == nil {
+			if parsed.User != nil {
+				parsed.User = nil
+				repoUri = parsed.String()
+			}
+		}
+
 		if !disableStatus {
 			_, _ = fmt.Fprint(os.Stderr, "connecting...\r")
 			cloneOptions.Progress = oneLineWriter{Writer: os.Stderr}
@@ -113,6 +133,7 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 		if !disableStatus {
 			_, _ = fmt.Fprint(os.Stderr, "\033[2K\r")
 		}
+
 	} else if stat, err2 := os.Stat(uri); err2 == nil && !stat.IsDir() {
 		localFs := osfs.New(filepath.Dir(uri))
 		tmpFs := memfs.New()
@@ -129,9 +150,7 @@ func loadRepository(uri string, cachePath string, disableStatus bool, sshIdentit
 		}
 		repository, err = git.PlainOpen(uri)
 	}
-	if err != nil {
-		log.Panicf("failed to open %s: %v", uri, err)
-	}
+
 	return
 }
 
@@ -228,7 +247,7 @@ targets can be added using the --plugin system.`,
 		if len(args) == 2 {
 			cachePath = args[1]
 		}
-		repository, repoFeature := loadRepository(uri, cachePath, disableStatus, sshIdentity)
+		repository, repoUri, repoFeature := loadRepository(uri, cachePath, disableStatus, sshIdentity)
 
 		// core logic
 		pipeline := hercules.NewPipeline(repository)
@@ -306,9 +325,9 @@ targets can be added using the --plugin system.`,
 			}
 		}
 		if protobuf {
-			protobufResults(uri, deployedLeafs, results)
+			protobufResults(repoUri, deployedLeafs, results)
 		} else {
-			printResults(uri, deployedLeafs, results)
+			printResults(repoUri, deployedLeafs, results)
 		}
 	},
 }

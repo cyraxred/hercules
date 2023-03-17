@@ -16,9 +16,17 @@ import (
 )
 
 func TestLoadGitRepository(t *testing.T) {
-	repo, repoFeature := loadRepository("https://github.com/src-d/hercules", "", true, "")
+	repo, repoUri, repoFeature := loadRepository("https://github.com/src-d/hercules", "", true, "")
 	assert.NotNil(t, repo)
 	assert.Equal(t, repoFeature, core.FeatureGitCommits)
+	assert.Equal(t, repoUri, "https://github.com/src-d/hercules")
+}
+
+func TestLoadGitRepositoryWithCreds(t *testing.T) {
+	_, repoUri, repoFeature, err := loadRepositoryWithError("https://user:user@github.com/src-d/hercules", "", true, "")
+	assert.NotNil(t, err)
+	assert.Equal(t, repoFeature, core.FeatureGitCommits)
+	assert.Equal(t, repoUri, "https://github.com/src-d/hercules")
 }
 
 func TestLoadLocalRepository(t *testing.T) {
@@ -34,15 +42,16 @@ func TestLoadLocalRepository(t *testing.T) {
 		assert.FailNow(t, "filesystem.NewStorage")
 	}
 
-	repo, repoFeature := loadRepository(tempdir, "", true, "")
+	repo, repoUri, repoFeature := loadRepository(tempdir, "", true, "")
 	assert.NotNil(t, repo)
+	assert.Equal(t, repoUri, tempdir)
 	assert.Equal(t, repoFeature, core.FeatureGitCommits)
 }
 
 func TestLoadSivaRepository(t *testing.T) {
 	_, filename, _, _ := runtime.Caller(0)
 	sivafile := filepath.Join(filepath.Dir(filename), "test_data", "hercules.siva")
-	repo, repoFeature := loadRepository(sivafile, "", true, "")
+	repo, _, repoFeature := loadRepository(sivafile, "", true, "")
 	assert.NotNil(t, repo)
 	assert.Equal(t, repoFeature, core.FeatureGitCommits)
 
@@ -52,7 +61,8 @@ func TestLoadSivaRepository(t *testing.T) {
 }
 
 func TestLoadStubRepository(t *testing.T) {
-	repo, repoFeature := loadRepository("-", "", true, "")
+	repo, repoUri, repoFeature := loadRepository("-", "", true, "")
 	assert.NotNil(t, repo)
+	assert.Equal(t, repoUri, "-")
 	assert.Equal(t, repoFeature, core.FeatureGitStub)
 }
